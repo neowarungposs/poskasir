@@ -16,8 +16,9 @@ fun rupiah(value: Long): String {
     return (if (value < 0) "-Rp" else "Rp") + grouped
 }
 
-fun parseInstant(ts: String?): Instant? = ts?.let {
-    runCatching { OffsetDateTime.parse(it).toInstant() }.getOrElse { runCatching { Instant.parse(it) }.getOrNull() }
+fun parseInstant(ts: String?): Instant? = ts?.let { text ->
+    runCatching { OffsetDateTime.parse(text).toInstant() }.getOrNull()
+        ?: runCatching { Instant.parse(text) }.getOrNull()
 }
 
 fun formatDate(ts: String?): String = parseInstant(ts)?.atZone(ZoneId.systemDefault())?.format(dateFmt) ?: "-"

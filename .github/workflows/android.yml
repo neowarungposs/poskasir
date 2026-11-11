@@ -43,7 +43,7 @@ jobs:
       - name: Build tenant, direct and admin APKs
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace assembleTenantDebug assembleDirectDebug assembleAdminDebug
+          ./gradlew --no-daemon --continue assembleTenantDebug assembleDirectDebug assembleAdminDebug
 
       - name: Collect APKs
         run: |

@@ -63,7 +63,7 @@ fun ProdukScreen(repo: PosRepository) {
                 ErrorText(error)
             }
             items(products, key = { it.id }) { p ->
-                Card(Modifier.fillMaxWidth(), onClick = { editing = p }) {
+                Card(onClick = { editing = p }, modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(p.name, fontWeight = FontWeight.SemiBold)
