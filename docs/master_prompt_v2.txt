@@ -1,0 +1,259 @@
+# PROMPT v2: Enterprise SaaS POS Android App (Supabase + Offline-First) for Google Play
+
+**Role:** Senior Android, Security, & Supabase Data Engineer. Generate production-ready code iteratively. Wait for my "Next Step" command before proceeding.
+**Language:** Code, comments and identifiers in English. All end-user UI text in Bahasa Indonesia.
+**Rule:** Section 0 (Locked Decisions) is final. Do not re-propose alternatives to it unless I explicitly ask. If a request conflicts with Section 0, point out the conflict first.
+
+---
+
+## 0. Locked Decisions (Decision Log)
+
+| # | Decision | Reason |
+|---|---|---|
+| D1 | Subscription is paid OUTSIDE the Play app (static QRIS + bank transfer, manual verification). The Play build shows NO price, discount, QRIS, bank account, pay button or payment link. | Low cost for UMKM, no Play Billing fee; avoids Play Payments policy (anti-steering). |
+| D2 | Payment page = one static HTML page on GitHub Pages using supabase-js (anon key + RLS). No web server. | Zero hosting cost. |
+| D3 | Three Android build flavors from one codebase: `tenant` (Play Store), `direct` (optional sideload APK, MAY show pricing), `admin` (SUPER_ADMIN only, NEVER uploaded to Play, sideload, biometric lock). | Admin code not shipped in public APK; no web server needed. |
+| D4 | Merchant QRIS (each outlet's own QRIS shown to ITS customers when paying for food) is allowed in all flavors. It is a payment for physical goods, not for app features. | Play Billing does not apply to physical goods. |
+| D5 | Role and tenant are stored in `memberships` and injected into the JWT by a Custom Access Token Hook. NEVER in `user_metadata`. | Prevent privilege escalation. |
+| D6 | Permanent per-tenant `pay_code` (1..999, never reused). Transfer amount = plan price + pay_code. | Late transfers stay identifiable forever; no dispute. |
+| D7 | Proof screenshot is a CLAIM, not proof. Approval requires a recorded entry in the incoming-money ledger (`incoming_payments`). | Fake/edited proofs cannot activate a subscription. |
+| D8 | Subscription status is DERIVED from dates, never stored. Grace period 3 days, then read-only. Data is never deleted on expiry. | No stale status; no lost sales. |
+| D9 | Server NEVER rejects synced sales. Expiry is enforced on the device BEFORE a sale, with tamper-resistant trusted time. | Offline-first must not lose transactions. |
+| D10 | WhatsApp reminders are sent MANUALLY from the admin app via `wa.me` links from a scheduled queue. No WA gateway in MVP. | Free, no ban risk. Upgrade to WhatsApp Cloud API (official) later. |
+| D11 | Tenants that stop paying become `CHURNED` (archived) automatically after N days (configurable) or manually. | Admin lists stay clean; tenant data kept. |
+| D12 | Discounts per duration (e.g. 6 / 12 months) are configured by SUPER_ADMIN via versioned `plans`. | Price history needed to decode late transfers. |
+| D13 | Payment page design = mockup "Opsi B — Hitung Hemat" (dark). See Section 9.4. | Chosen by owner. |
+| D14 | Future (not MVP): payment gateway with dynamic QRIS + webhook auto-approve when tenants approach 999 or revenue justifies the fee. | Capacity of pay_code; automation. |
+
+---
+
+## 1. Tech Stack & Architecture
+
+* **Android:** Kotlin, Jetpack Compose (Material 3), MVVM, Hilt, Coroutines/Flow.
+* **Secure storage:** Jetpack DataStore encrypted with **Tink** (keys in Android Keystore). `EncryptedSharedPreferences` is deprecated — do NOT use. Supabase session must be persisted through this secure storage.
+* **Local DB:** Room (Offline-first SSOT, exported schemas, explicit Migrations).
+* **Background:** WorkManager (sync, local reminders).
+* **Push:** Firebase Cloud Messaging (HTTP v1).
+* **Backend:** Supabase (Postgres + RLS, Auth, Storage, Edge Functions in Deno, `pg_cron`, `pg_net` / Database Webhooks).
+* **Web:** Static HTML + supabase-js on GitHub Pages (payment page, account deletion request page).
+* **Build:** GitHub Actions builds all flavors. Separate Supabase projects for `dev` and `prod`.
+* **Paradigm:** SaaS multi-tenancy, 1 central Supabase project, strict RLS isolation by `tenant_id`.
+* **Money:** `bigint` rupiah in DB, `Long` in Kotlin. Never Float/Double.
+* **Time:** `timestamptz` everywhere; display in device zone (WIB/WITA/WIT).
+
+---
+
+## 2. Identity, Roles & Security
+
+* **Roles:** `SUPER_ADMIN` (system owner), `TENANT_ADMIN` (warung owner), `BRANCH_CASHIER`.
+* **`memberships`** (user_id PK → auth.users, tenant_id, outlet_id nullable, role). Writable only by SECURITY DEFINER functions / service role.
+* **Custom Access Token Hook** puts `tenant_id`, `role`, `outlet_id` into JWT claims. Client refreshes session after role changes.
+* **RLS pattern** (cached per statement): `using (tenant_id = (select (auth.jwt()->>'tenant_id')::uuid))`. `SUPER_ADMIN` bypass via `(select auth.jwt()->>'role') = 'SUPER_ADMIN'` only where needed.
+* **`tenant_id` is set by a BEFORE INSERT trigger** from the JWT. Client-sent `tenant_id` is ignored/overwritten.
+* **Write paths:** `REVOKE INSERT/UPDATE/DELETE` on transactional tables from `authenticated`; all writes through RPCs. Every SECURITY DEFINER function uses `set search_path = ''` and checks the caller's role inside.
+* **Registration:** requires real auth (Google Sign-In or email OTP). One tenant per owner account. Rate-limit `register_new_tenant`. Optional Play Integrity check against trial farming.
+* **Cashier accounts:** created only via Edge Function `invite_cashier` (service role), which also writes the membership with `outlet_id`.
+* **Storage:** private buckets, object path prefix `{tenant_id}/...`, access via signed URLs. Buckets: `payment-proofs`, `outlet-assets` (logo, merchant QRIS), `system-assets` (global QRIS).
+* **Admin app:** biometric/PIN lock on open; all admin RPCs re-check `SUPER_ADMIN` server-side.
+* **Webhooks → Edge Functions** authenticated with a secret header. FCM service account and all secrets in Supabase secrets, never in code or APK.
+* **Obfuscation:** R8/ProGuard rules for all flavors.
+
+---
+
+## 3. Database Schema (key columns)
+
+* **`system_settings`** (single row, id=1): monthly_base_price, global_qris_path, bank_details_text, grace_days (3), max_offline_days (7), payment_page_url, deletion_page_url. Readable by authenticated, writable by SUPER_ADMIN.
+* **`tenants`**: id, business_name, owner_user_id, email, phone_wa, wa_opt_in, `pay_code int unique check (1..999)` (assigned at registration, never reused), trial_ends_at, paid_until (nullable), lifecycle ('LIVE','CHURNED'), churned_at, churn_reason, created_at, updated_at.
+* **`memberships`**: see Section 2.
+* **`outlets`**: id, tenant_id, code, name, address, merchant_qris_path (lossless image), is_main, deleted_at, updated_at.
+* **`products`**: id (client UUIDv7), tenant_id, outlet_id, name, price bigint, image_path, is_active, deleted_at (soft delete), updated_at.
+* **`sales_orders`**: id (client UUIDv7), tenant_id, outlet_id, device_id, invoice_no (`OUTLET-DEVICE-YYMMDD-SEQ`), created_at (device trusted time), synced_at, payment_method ('CASH','QRIS','OTHER'), total bigint, status ('PAID','VOIDED'), sync_flag ('OK','FLAGGED'), cashier_id.
+* **`sales_order_items`**: id, order_id, tenant_id, product_id (`ON DELETE SET NULL`), product_name (snapshot), unit_price (snapshot), qty, subtotal.
+* **`void_requests`**: id, tenant_id, order_id, requested_by, reason, status ('PENDING','APPROVED','REJECTED'), decided_by, decided_at.
+* **`audit_logs`**: id, tenant_id nullable, actor_id, action, entity, entity_id, payload jsonb, created_at.
+* **`fcm_tokens`**: token PK, user_id, device_id, app_flavor, updated_at. Delete on FCM `UNREGISTERED`.
+* **`plans`** (versioned, never edited in place): id, months (1..24), normal_price, discount_pct (0..90), price (`check price % 1000 = 0`), badge ('PALING HEMAT','POPULER', null), promo_ends_at nullable, is_active, retired_at, created_at.
+* **`payment_confirmations`** (tenant CLAIMS): id, tenant_id, plan_id, plan_price_snapshot, expected_amount, sender_name nullable, proof_path nullable, proof_sha256 (unique when not null), transfer_at nullable, status ('PENDING','APPROVED','REJECTED','CANCELLED'), rejection_reason, reviewed_by, reviewed_at, created_at.
+* **`incoming_payments`** (money ledger = source of truth): id, channel ('QRIS','BANK'), amount bigint, received_at, sender_name, bank_ref, decoded_tenant_id, claim_id `unique` (1 money = max 1 claim), status ('UNMATCHED','MATCHED','REFUNDED','IGNORED'), note, recorded_by, recorded_at, `unique(channel, bank_ref)`.
+* **`credit_ledger`**: id, tenant_id, amount (+/-), reason, incoming_payment_id, created_at. (Overpayment kept as extension balance.)
+* **`subscription_events`**: id, tenant_id, kind ('TRIAL_START','EXTEND','CHURN','REVIVE','REFUND'), months, old_paid_until, new_paid_until, incoming_payment_id, actor_id, created_at.
+* **`reminder_settings`** (single row): enabled, days_before int[] default '{7,3,1}', remind_on_grace bool, run_hour (WIB, 0..23), wa_template text, auto_churn_after_days default 30.
+* **`wa_reminder_queue`**: id, tenant_id, kind, period_end, plan_suggestion_id, amount, status ('PENDING','SENT','SKIPPED'), sent_at, sent_by, `unique(tenant_id, kind, period_end)`.
+* **`reminder_log`** (tenant push dedupe): tenant_id, kind, period_end, sent_at, `unique(tenant_id, kind, period_end)`.
+
+**Mandatory indexing:** index `tenant_id` on ALL tenant tables; composite `(tenant_id, updated_at)` for delta sync; `(tenant_id, created_at)` for reports; `incoming_payments(amount)`, `incoming_payments(status)`.
+
+---
+
+## 4. Subscription Logic
+
+* `access_until = greatest(trial_ends_at, coalesce(paid_until, '-infinity'))`
+* `grace_until = access_until + grace_days`
+* Derived status:
+  * `TRIAL`: paid_until is null and now() <= trial_ends_at → full access
+  * `ACTIVE`: now() <= access_until → full access
+  * `GRACE`: now() <= grace_until → can still sell, red banner
+  * `EXPIRED`: after grace → READ-ONLY (reports, history, export allowed; no new sales). Data never deleted.
+* Trial = 30 days, set by `register_new_tenant`.
+* Extension: `paid_until = greatest(now(), access_until) + make_interval(months => plan.months)`. Paying during trial keeps remaining trial; paying after expiry starts from approval date (never backdated).
+* RPC **`get_entitlement()`** returns server_now, access_until, grace_until, status, pay_code, max_offline_days. Always server `now()`.
+
+---
+
+## 5. Pricing, Discounts & Plans (SUPER_ADMIN configurable)
+
+* Base monthly price in `system_settings`. Durations 1 / 3 / 6 / 12 months (toggle each), discount % per duration, badge, optional `promo_ends_at`.
+* Final price = `floor(normal_price * (1 - discount_pct/100) / 1000) * 1000`.
+* RPC `upsert_plan`: retires the old version and inserts a new one. Rejects if the final price equals any plan that is active or retired within the last 180 days (show "harga bentrok").
+* `pg_cron` daily: when `promo_ends_at` passes, retire the promo version and create the normal-price version.
+* Price is locked at claim time (`plan_price_snapshot`): a promo chosen before it ended is honored.
+* Example (reference only): Rp29.000/bln; 3 bln −5% = Rp82.000; 6 bln −10% = Rp156.000; 12 bln −20% = Rp278.000.
+
+---
+
+## 6. Payment Flow & Matching (manual verification)
+
+**Flow:**
+1. Tenant opens payment page (link from WA/email, never from the Play app), logs in with the same account.
+2. Chooses duration → page shows ONE exact amount = plan price + pay_code (e.g. Rp278.137) with copy button and warning "Transfer PERSIS, SEKALI saja".
+3. Pays via static QRIS or bank transfer. Optionally uploads proof + sender name → RPC `submit_payment` creates a `payment_confirmations` claim. Proof and sender name are OPTIONAL.
+4. Webhook → Edge Function → FCM to admin app: "Pembayaran baru: {business_name} ({customer_code}) • Rp{amount} • {plan}".
+5. Admin records the real money seen in bank mutation / QRIS merchant app into `incoming_payments` (QRIS: check the merchant app, because bank settlement is aggregated and net of MDR).
+6. System decodes: `code = amount % 1000` → tenant; `base = amount - code` → plan (match any plan version within 180 days; or base divisible by monthly price = N months). Decoding is a SUGGESTION ONLY, never auto-approve.
+7. Admin approves → RPC `approve_payment(incoming_payment_id, tenant_id, plan_id, note)` in ONE transaction with `FOR UPDATE`: ledger MATCHED, claim APPROVED, paid_until extended, CHURNED → LIVE if needed, `subscription_events` + `audit_logs` rows, FCM data message `ENTITLEMENT_UPDATED` to tenant devices.
+8. `reject_payment(claim_id, reason)` with reason chips: nominal tidak sesuai, dana belum masuk, bukti tidak jelas, duplikat. Notify tenant.
+
+**Rules:**
+* `approve_payment` REQUIRES an `incoming_payments` row. No ledger row → cannot approve.
+* `incoming_payments.claim_id unique` → one transfer activates once.
+* `proof_sha256` duplicate → flag.
+* Red flag when decoded code ≠ claimant's pay_code (e.g. tenant multiplied 3 × Rp29.137 = Rp87.411 → code 411 belongs to someone else).
+* Several separate monthly transfers stack (each approval extends).
+* Amount not matching any plan: admin chooses nearest lower plan + remainder to `credit_ledger`, or refund.
+* Unknown money ("Uang Masuk Tak Dikenal"): ledger rows with status UNMATCHED stay listed until a tenant claims them; admin links them. Full audit trail.
+* Payment page must always be reachable, also for CHURNED tenants, with a "Saya sudah transfer" claim even without a chosen plan.
+* Payment terms shown on payment page: transfer exact amount; activation max 1×24 jam hari kerja; late payments are accepted; wrong amount/double payment → refund or extension balance.
+
+---
+
+## 7. Offline-First Sync & Expiry Enforcement
+
+**Trusted time (device):**
+* On every successful sync store (encrypted): server_now, grace_until, elapsedRealtime at sync, last_trusted_time.
+* `trusted_now = server_now + (elapsedRealtime_now - elapsed_at_sync)`.
+* After reboot (elapsedRealtime smaller): `trusted_now = max(System.currentTimeMillis(), last_trusted_time)`.
+* If no successful sync for more than `max_offline_days` (7) → require one online check before new sales, even if subscription is active.
+
+**Checkout gate:** before creating a sale: `trusted_now <= grace_until` else block sale and show read-only mode. Banners: yellow from H-7, red during GRACE.
+
+**Sync engine (WorkManager):**
+* Client-generated UUIDv7 IDs; BATCH upsert via RPC (`on conflict (id) do nothing` for orders) → retries are idempotent.
+* Push: pending local rows in batches. Pull: delta by `updated_at > last_pulled_at` per table (products, outlets, settings, plans status, void decisions).
+* Soft deletes (`deleted_at`) propagate to all devices; hard delete only as later purge.
+* Conflict policy: server wins for master data; orders immutable after creation (changes only via `void_requests`).
+* Server NEVER rejects synced orders: `created_at <= grace_until` → `sync_flag='OK'`, else stored with `sync_flag='FLAGGED'` for audit.
+* Server-side subscription check applies only to online-created operations, never to the sync of historical sales.
+
+---
+
+## 8. Notifications & Reminders
+
+**Tenant (in-app only, status text, no price/link):**
+* Server: `pg_cron` hourly → `send_reminders` Edge Function at configured hour; schedule H-7, H-3, H-2, H-1, H0, daily during GRACE, on EXPIRED; dedupe via `reminder_log`.
+* Local fallback: daily WorkManager computes from cached grace_until (works offline); skip if server push for that day arrived.
+* Approved/rejected payment push. `POST_NOTIFICATIONS` permission (Android 13+).
+* Example text: "Langganan berakhir 3 hari lagi (12 Des). Kode pelanggan: WRG-7K3P."
+
+**Admin:**
+* Push on new claim; daily push "{n} tenant perlu diingatkan hari ini"; next-morning push for unsent queue items.
+* `build_reminder_queue()` via `pg_cron` hourly, runs when WIB hour = `run_hour` and enabled: tenants with access_until at H-`days_before` or in GRACE (LIVE only) → `wa_reminder_queue` with suggested amount (best plan incl. pay_code).
+* "Antrean WA" screen: tap "Kirim WA" → opens `https://wa.me/{phone}?text={urlencoded template}` → mark SENT; "Lewati" → SKIPPED.
+* Template placeholders: {nama_usaha}, {kode}, {tanggal}, {nominal}, {promo_terbaik}, {link}.
+
+**Tenant lifecycle:**
+* `pg_cron` daily: EXPIRED longer than `auto_churn_after_days` → CHURNED (churn_reason 'AUTO_EXPIRED'); open claims → CANCELLED; removed from queue/active lists.
+* Manual "Tandai Tidak Lanjut" with reason. Archive tab in admin. Approved payment revives to LIVE.
+
+---
+
+## 9. Apps & UI
+
+### 9.1 Tenant app — flavor `tenant` (Play Store)
+* **Onboarding:** Login (Google / email OTP) → "Buat POS Anda" → `register_new_tenant` (30-day trial, pay_code, main outlet) → collect WA number + opt-in.
+* **TENANT_ADMIN (main outlet):** full POS, branch management, products (soft delete + "hapus permanen" purge), reports, void approval, outlet settings (upload merchant QRIS), cashier invites.
+* **BRANCH_CASHIER:** basic POS, request voids only, read-only when EXPIRED.
+* **POS payment methods:** Tunai, QRIS (show outlet's merchant QRIS; cashier taps "Sudah diterima"), Lainnya. Saved as `payment_method`.
+* **Langganan screen (NO prices, NO payment link):** status chip (Trial / Aktif / Masa tenggang / Berakhir), "Aktif s/d {date}", days left, Kode Pelanggan with copy, "Cek Status Langganan" button.
+* **Settings:** "Hapus Akun & Semua Data Usaha".
+* **Responsive UI:** Grid/List toggle, constrained image scaling. Digital Invoice uses Canvas dashed lines and `weight(1f)`.
+
+### 9.2 Flavor `direct` (sideload, optional)
+* Same as `tenant` plus plan cards on the Langganan screen in the Option B style (Section 9.4) and a link to the payment page.
+
+### 9.3 Admin app — flavor `admin` (never on Play)
+* Biometric lock. Screens:
+  * **Dashboard:** pending claims, unmatched money, today's WA queue, expiring soon, counts LIVE/CHURNED.
+  * **Pembayaran:** tabs Pending / Disetujui / Ditolak (oldest first).
+  * **Detail validasi:** tenant (name, code, owner, WA, email, current status, access_until); claim (plan, expected amount, sender, transfer time, upload time); proof image (zoom, signed URL); auto-flags (amount mismatch, code ≠ tenant code, duplicate proof hash, multiple pending); preview "Jika disetujui: aktif s/d {date}"; tenant payment history; actions Setujui / Tolak / Kirim WA.
+  * **Buku Uang Masuk:** record money (channel, amount, time, sender, ref); "Cari Nominal" (decode → tenant + plan suggestion, incl. archived tenants); UNMATCHED list; link to tenant.
+  * **Antrean WA:** see Section 8.
+  * **Tenant:** Live / Arsip, detail, manual churn, subscription history.
+  * **Paket & Diskon:** base price, per-duration toggle, discount %, badge, promo end date, live preview ("12 bln: Rp348.000 → Rp278.000 • hemat Rp70.000 • ≈Rp23.167/bln"), collision warning, version history.
+  * **Pengaturan:** reminder_settings, system_settings, global QRIS (lossless) and bank details.
+
+### 9.4 Payment page (GitHub Pages) — chosen design "Opsi B — Hitung Hemat"
+* Mobile-first, dark theme. Tokens: background #101418, surface #1A2027, divider #262E37, text #F2F4F5, secondary text #A9B3BC, accent lime #C6F24E (dark text #101418 on accent). Fonts: Space Grotesk (headings/numbers), Inter (body).
+* Sections in order:
+  1. Header: app name + customer code.
+  2. "{business_name} · berakhir {date}" + headline "Makin lama, *makin hemat.*" (second line in accent).
+  3. Segmented control 1 / 3 / 6 / 12 bln (default: longest active plan, selected = accent fill).
+  4. Price card: plan name, discount chip (−20%), struck normal price, big final price, "cuma ≈ Rp{x} per bulan", 12-block month visual (paid blocks grey, free-equivalent blocks outlined accent "FREE"), "Hemat Rp{x} — setara {n} bulan gratis" (free months = floor(savings / monthly price)).
+  5. "BANDINGKAN" table: Durasi / Per bulan / Hemat; selected row highlighted.
+  6. Promo countdown (hari / jam / menit) when promo_ends_at is set; hidden otherwise.
+  7. Accent "TRANSFER PERSIS" card: amount with pay_code underlined, copy button, "3 digit terakhir {code} = kode unik Anda. Sekali transfer, langsung aktif sampai {date}."
+  8. "CARA BAYAR" accordion: QRIS (open, global QRIS image, "Scan, lalu ketik nominal persis …"), Transfer bank (bank details + copy).
+  9. Nama pengirim (opsional), Unggah bukti (opsional), primary button "Saya sudah transfer".
+  10. Payment terms (Section 6).
+* Mockup reference: https://claude.ai/artifact/LPuDJYxPSrRG492o4c5Qbi (board "Opsi B").
+* Also host the account deletion request page here (Play requirement).
+
+---
+
+## 10. Hardware & Images
+
+* **Bluetooth printers:** Android 12+ permissions (`BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN` with `neverForLocation`), legacy permissions for ≤ Android 11; ESC/POS on `Dispatchers.IO` with try-catch and reconnect; paper width setting 58mm / 80mm.
+* **Image compression before upload:** WebP, max 800px, < 200KB for product images; payment proofs max 1280px (keep amounts readable). EXCEPTION: any QRIS image (merchant or global) uploaded lossless (PNG / lossless WebP), never downscaled below scannable size.
+
+---
+
+## 11. Play Store Compliance Checklist
+
+* `tenant` flavor contains no subscription price, discount, QRIS/bank for subscription, pay button or external payment link (D1).
+* Account deletion: in-app "Hapus Akun & Semua Data Usaha" + web deletion request URL. Edge Function `delete_account`: owner → whole tenant (DB cascade + explicit Storage object deletion + auth users of tenant); cashier → own account only. Disclose retention of financial records (if any) in privacy policy.
+* Data safety form, privacy policy URL, POST_NOTIFICATIONS and Bluetooth permission rationale screens.
+* Supabase free projects pause when inactive → use a paid plan for production.
+
+---
+
+## 12. Iterative Execution Steps (AWAIT MY COMMAND)
+
+* **Step 1:** Supabase SQL migrations: extensions, enums, all tables (Section 3), indexes, `memberships` + Custom Access Token Hook, tenant_id triggers, RLS policies, Storage buckets & policies, RPCs (`register_new_tenant`, `get_entitlement`, `upsert_plan`, `submit_payment`, `record_incoming_payment`, `decode_amount`, `approve_payment`, `reject_payment`, `link_unmatched_payment`, `mark_churned`, `sync_push_orders`, `sync_pull`), `pg_cron` jobs. Include RLS test script (login as each role).
+* **Step 2:** Edge Functions: `invite_cashier`, `delete_account`, `notify_admin_new_claim` (webhook), `notify_tenant_entitlement`, `send_reminders`, `build_reminder_queue` trigger, FCM v1 helper, token cleanup.
+* **Step 3:** Android core (shared module): Hilt, Tink DataStore, Supabase client, Room + migrations, sync engine (push/pull, idempotent), entitlement + trusted time, image compression, FCM token handling, build flavors `tenant` / `direct` / `admin`.
+* **Step 4:** Onboarding & auth Compose UI, role routing, WA opt-in.
+* **Step 5:** Tenant Admin UI: POS (Tunai / QRIS merchant), products, branch & cashier management, void approval, reports, Langganan status screen, delete account.
+* **Step 6:** Branch UI, Canvas Digital Invoice, Bluetooth printing.
+* **Step 7:** Admin app UI (Section 9.3) + FCM service.
+* **Step 8:** Static web pages on GitHub Pages: payment page (Section 9.4) and account deletion page.
+* **Step 9:** Play readiness: R8 rules, Data safety, privacy policy, closed testing track.
+
+---
+
+## 13. How to Update This Prompt
+
+* Add new decisions as a new row in Section 0 (D15, D16, …) and update the affected section.
+* Keep a version line below.
+
+**Version history**
+* v1 — initial draft.
+* v2 (2026-11-11) — fixes: role storage, expiry formula bug, offline vs expiry, RPC bypass, trial abuse; added: off-Play billing, permanent pay_code, money ledger, plans & discounts, tenant lifecycle, WA queue, admin flavor, payment page design Opsi B.

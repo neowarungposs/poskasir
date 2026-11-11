@@ -2,3 +2,17 @@
 .env.*
 node_modules/
 .claude/settings.local.json
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+*.keystore
+*.jks
+
+# Firebase config comes from the GOOGLE_SERVICES_JSON secret, never committed
+app/google-services.json
+google-services.json
