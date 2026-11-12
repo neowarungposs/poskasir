@@ -23,6 +23,10 @@
 | D11 | Tenants that stop paying become `CHURNED` (archived) automatically after N days (configurable) or manually. | Admin lists stay clean; tenant data kept. |
 | D12 | Discounts per duration (e.g. 6 / 12 months) are configured by SUPER_ADMIN via versioned `plans`. | Price history needed to decode late transfers. |
 | D13 | Payment page design = mockup "Opsi B — Hitung Hemat" (dark). See Section 9.4. | Chosen by owner. |
+| D15 | Android client uses plain OkHttp + kotlinx.serialization against Supabase REST (no Supabase SDK, no Hilt; manual service locator). Login = email + password. | Fewer dependency/version risks; builds verified only on CI. |
+| D16 | Tenant admin navigation: Kasir, Riwayat, Kelola (Produk, Cabang, Kasir, Void, Laporan), Langganan, Akun. Cashier: Kasir, Riwayat, Langganan, Akun. | Max 5 bottom tabs. |
+| D17 | Server push: DB triggers -> pg_net -> Edge Function `notify` (secret in Vault, checked by `check_webhook_secret`), FCM HTTP v1 data-only messages. Secret `FCM_SERVICE_ACCOUNT` lives only in Supabase Edge secrets. | No secret in app or repo. |
+| D18 | Product photos cached on device (filesDir/products) for offline POS. Printing only to already-paired Bluetooth printers (no scan permission). | Offline-first; fewer permissions. |
 | D14 | Future (not MVP): payment gateway with dynamic QRIS + webhook auto-approve when tenants approach 999 or revenue justifies the fee. | Capacity of pay_code; automation. |
 
 ---
@@ -256,4 +260,6 @@
 
 **Version history**
 * v1 — initial draft.
+* v1.1.0 app (2026-11-12) — Bluetooth ESC/POS printing, branches & cashier accounts (Edge Function manage_cashier), void request/approval, product photos, branch report, server push (notify), global QRIS upload, payment page + deletion page on GitHub Pages.
+* v1.0.0 app (2026-11-12) — first build: auth, onboarding, offline POS + sync, products, history, subscription gate, admin app, delete_account.
 * v2 (2026-11-11) — fixes: role storage, expiry formula bug, offline vs expiry, RPC bypass, trial abuse; added: off-Play billing, permanent pay_code, money ledger, plans & discounts, tenant lifecycle, WA queue, admin flavor, payment page design Opsi B.
