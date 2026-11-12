@@ -38,6 +38,23 @@ import com.neowarungposs.poskasir.ui.AmberSoft
 import com.neowarungposs.poskasir.ui.Banner
 import com.neowarungposs.poskasir.ui.RedSoft
 import com.neowarungposs.poskasir.ui.RedText
+import com.neowarungposs.poskasir.ui.AppBackground
+import com.neowarungposs.poskasir.ui.LocalPalette
+import com.neowarungposs.poskasir.ui.glassBorder
+import com.neowarungposs.poskasir.ui.glassColor
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 private data class Tab(val label: String, val icon: ImageVector)
@@ -70,25 +87,8 @@ fun PosHome(container: AppContainer, repo: PosRepository, claims: Claims) {
         }
     }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                tabs.forEachIndexed { i, t ->
-                    NavigationBarItem(
-                        selected = selected == i,
-                        onClick = { selected = i },
-                        icon = { Icon(t.icon, contentDescription = t.label) },
-                        label = { Text(t.label) },
-                    )
-                }
-            }
-        },
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+    val content: @Composable (Modifier) -> Unit = { m ->
+        Column(m.fillMaxSize()) {
             GateBanner(gate)
             when (tabs.getOrNull(selected)?.label) {
                 "Kasir" -> KasirScreen(repo, gate, isAdmin)
@@ -96,6 +96,47 @@ fun PosHome(container: AppContainer, repo: PosRepository, claims: Claims) {
                 "Riwayat" -> RiwayatScreen(repo, isAdmin)
                 "Langganan" -> LanggananScreen(container, repo, isAdmin)
                 "Akun" -> AkunScreen(container, repo, claims)
+            }
+        }
+    }
+
+    AppBackground {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            if (maxWidth >= 840.dp) {
+                // Tablet: slim glass rail on the left (Aurora mockup).
+                Row(Modifier.fillMaxSize().systemBarsPadding()) {
+                    Surface(
+                        modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp).fillMaxHeight().width(80.dp),
+                        shape = RoundedCornerShape(26.dp), color = glassColor(), border = glassBorder(),
+                    ) {
+                        NavigationRail(containerColor = Color.Transparent, modifier = Modifier.padding(vertical = 8.dp)) {
+                            tabs.forEachIndexed { i, t ->
+                                NavigationRailItem(
+                                    selected = selected == i, onClick = { selected = i },
+                                    icon = { Icon(t.icon, contentDescription = t.label) },
+                                    label = { Text(t.label, fontSize = 11.sp) },
+                                )
+                            }
+                        }
+                    }
+                    content(Modifier.weight(1f))
+                }
+            } else {
+                Scaffold(
+                    containerColor = Color.Transparent,
+                    bottomBar = {
+                        NavigationBar(containerColor = if (LocalPalette.current.glass) MaterialTheme.colorScheme.surface.copy(alpha = 0.9f) else NavigationBarDefaults.containerColor) {
+                            tabs.forEachIndexed { i, t ->
+                                NavigationBarItem(
+                                    selected = selected == i,
+                                    onClick = { selected = i },
+                                    icon = { Icon(t.icon, contentDescription = t.label) },
+                                    label = { Text(t.label) },
+                                )
+                            }
+                        }
+                    },
+                ) { padding -> content(Modifier.padding(padding)) }
             }
         }
     }

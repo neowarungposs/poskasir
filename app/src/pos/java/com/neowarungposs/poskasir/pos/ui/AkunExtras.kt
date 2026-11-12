@@ -98,6 +98,7 @@ fun AppearanceCard(repo: PosRepository, onInfo: (String) -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppTheme.entries.forEach { t ->
                     val (a, b) = when (t) {
+                        AppTheme.AURORA -> Color(0xFF070A12) to Color(0xFFC8F65A)
                         AppTheme.BENTO -> Color(0xFFEEF0EA) to Color(0xFF0E7A4F)
                         AppTheme.NEON -> Color(0xFF090D12) to Color(0xFFC6F24E)
                         AppTheme.MIDNIGHT -> Color(0xFF0B1220) to Color(0xFF7DD3FC)

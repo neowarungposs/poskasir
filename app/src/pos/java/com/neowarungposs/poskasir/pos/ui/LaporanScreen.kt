@@ -63,6 +63,9 @@ import com.neowarungposs.poskasir.pos.PosRepository
 import com.neowarungposs.poskasir.pos.PosRepository.Companion.DAY_MS
 import com.neowarungposs.poskasir.ui.ErrorText
 import com.neowarungposs.poskasir.ui.LocalPalette
+import com.neowarungposs.poskasir.ui.Display
+import com.neowarungposs.poskasir.ui.heroBrush
+import androidx.compose.foundation.border
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -148,10 +151,13 @@ fun LaporanScreen(repo: PosRepository) {
 
         val omzet = d.l("omzet"); val hpp = d.l("hpp"); val laba = omzet - hpp
         val marginPct = if (omzet > 0) laba * 100.0 / omzet else 0.0
-        Surface(shape = RoundedCornerShape(20.dp), color = palette.hero, contentColor = palette.onHero, modifier = Modifier.fillMaxWidth()) {
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(heroBrush())
+                .then(palette.heroBorder?.let { Modifier.border(1.dp, it, RoundedCornerShape(24.dp)) } ?: Modifier),
+        ) {
             Column(Modifier.padding(18.dp)) {
                 Text("Omzet · ${outletName(outlets, outletId)}", color = palette.onHeroMuted, fontSize = 13.sp)
-                Text(rupiah(omzet), fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                Text(rupiah(omzet), color = palette.onHero, fontFamily = Display, fontSize = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
                 Text("${d.l("trx")} transaksi · rata-rata ${rupiah(if (d.l("trx") > 0) omzet / d.l("trx") else 0)}", color = palette.onHeroMuted, fontSize = 13.sp)
             }
         }
@@ -224,7 +230,7 @@ private fun Kpi(label: String, value: String, sub: String, modifier: Modifier) {
     Card(modifier) {
         Column(Modifier.padding(14.dp)) {
             Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, fontFamily = Display, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(sub, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

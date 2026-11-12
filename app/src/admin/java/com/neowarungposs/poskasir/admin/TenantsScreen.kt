@@ -102,7 +102,11 @@ private fun TenantDetail(repo: AdminRepo, t: Tenant, onClose: () -> Unit, onChan
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    LaunchedEffect(t.id) { runCatching { history = repo.claimsForTenant(t.id) } }
+    var contacts by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    LaunchedEffect(t.id) {
+        runCatching { history = repo.claimsForTenant(t.id) }
+        runCatching { contacts = repo.contactLog(t.id) }
+    }
 
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
@@ -116,6 +120,10 @@ private fun TenantDetail(repo: AdminRepo, t: Tenant, onClose: () -> Unit, onChan
                 Text("WA: ${t.phoneWa ?: "-"} ${if (t.waOptIn) "(setuju diingatkan)" else ""}")
                 Text("Daftar: ${formatDate(t.createdAt)}")
                 if (t.lifecycle == "CHURNED") Text("Diarsip ${formatDate(t.churnedAt)} · ${t.churnReason ?: ""}", color = RedText)
+                if (contacts.isNotEmpty()) {
+                    Text("Perubahan kontak oleh pemilik", fontWeight = FontWeight.Bold)
+                    contacts.take(5).forEach { (at, change) -> Text("${formatDateTime(at)} · $change", fontSize = 12.sp) }
+                }
                 Text("Riwayat klaim", fontWeight = FontWeight.Bold)
                 if (history.isEmpty()) Text("-")
                 history.take(10).forEach { Text("${formatDateTime(it.createdAt)} · ${it.status} · ${it.expectedAmount ?: "-"}", fontSize = 12.sp) }

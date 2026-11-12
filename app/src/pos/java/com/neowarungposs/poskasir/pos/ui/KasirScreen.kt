@@ -103,6 +103,16 @@ import com.neowarungposs.poskasir.pos.SyncScheduler
 import com.neowarungposs.poskasir.pos.TodayTotals
 import com.neowarungposs.poskasir.ui.ErrorText
 import com.neowarungposs.poskasir.ui.LocalPalette
+import com.neowarungposs.poskasir.ui.Display
+import com.neowarungposs.poskasir.ui.glassBorder
+import com.neowarungposs.poskasir.ui.glassColor
+import com.neowarungposs.poskasir.ui.heroBrush
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -165,7 +175,7 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
         onQty = add, onType = { orderType = it }, onTable = { tableNo = it.take(6) },
         onClear = { cart.clear(); notes.clear() }, onPay = { paying = true; sheet = false })
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -207,8 +217,8 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
             if (wide) {
                 Surface(
                     Modifier.width(372.dp).fillMaxHeight().padding(12.dp),
-                    shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(28.dp),
+                    color = glassColor(), border = glassBorder(),
                     tonalElevation = 1.dp,
                 ) { CartPanel(cartState, Modifier.fillMaxSize()) }
             }
@@ -277,20 +287,22 @@ private fun HeaderCard(repo: PosRepository, outlet: Outlet?, isAdmin: Boolean, q
 
     Surface(
         Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
-        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp,
+        shape = RoundedCornerShape(24.dp),
+        color = if (palette.glass) Color.Transparent else MaterialTheme.colorScheme.surface,
+        tonalElevation = if (palette.glass) 0.dp else 1.dp,
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(palette.hero),
+                    Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(if (palette.glass) MaterialTheme.colorScheme.primary else palette.hero),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (logo != null) AsyncImage(logo, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    else Text((tenant?.businessName ?: "K").take(1).uppercase(), color = palette.onHero, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                    else Text((tenant?.businessName ?: "K").take(1).uppercase(), color = if (palette.glass) MaterialTheme.colorScheme.onPrimary else palette.onHero, fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 22.sp)
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(tenant?.businessName ?: "Kasir Warung", fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(tenant?.businessName ?: "Kasir Warung", fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, letterSpacing = (-0.4).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Box {
                         Row(
                             Modifier.clickable(enabled = isAdmin && outlets.size > 1) { menu = true },
@@ -312,7 +324,11 @@ private fun HeaderCard(repo: PosRepository, outlet: Outlet?, isAdmin: Boolean, q
                     color = if (synced) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer,
                 ) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(if (synced) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary))
+                        Box(
+                            Modifier.size(8.dp)
+                                .shadow(if (palette.glass) 6.dp else 0.dp, CircleShape, spotColor = MaterialTheme.colorScheme.primary, ambientColor = MaterialTheme.colorScheme.primary)
+                                .clip(CircleShape).background(if (synced) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary),
+                        )
                         Spacer(Modifier.width(6.dp))
                         Text(if (synced) "Tersinkron" else "$pending antre", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
@@ -323,7 +339,12 @@ private fun HeaderCard(repo: PosRepository, outlet: Outlet?, isAdmin: Boolean, q
                 placeholder = { Text("Cari menu atau kategori") },
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
                 trailingIcon = if (query.isNotEmpty()) ({ IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Close, "Hapus") } }) else null,
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = if (palette.glass) Color.White.copy(alpha = 0.04f) else Color.Transparent,
+                    focusedContainerColor = if (palette.glass) Color.White.copy(alpha = 0.06f) else Color.Transparent,
+                    unfocusedBorderColor = if (palette.glass) Color.White.copy(alpha = 0.09f) else MaterialTheme.colorScheme.outline,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -343,26 +364,44 @@ private fun StatsRow(repo: PosRepository, outletId: String?, isAdmin: Boolean, a
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp).padding(bottom = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        StatTile("Omzet hari ini", rupiah(totals.omzet), "${totals.trx} transaksi", palette.hero, palette.onHero, palette.onHeroMuted, 190.dp)
+        val surface = glassColor()
+        StatTile("Omzet hari ini", rupiah(totals.omzet), "${totals.trx} transaksi", heroBrush(), palette.onHero, palette.onHeroMuted,
+            width = 210.dp, big = true, border = palette.heroBorder)
         if (isAdmin) {
             val margin = totals.omzet - cost.toLong()
             val pct = if (totals.omzet > 0) margin * 100 / totals.omzet else 0
-            StatTile("Laba kotor", rupiah(margin), "Margin $pct%", MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+            StatTile("Laba kotor", rupiah(margin), "Margin $pct%", SolidColor(surface), MaterialTheme.colorScheme.onSurface,
+                MaterialTheme.colorScheme.onSurfaceVariant, progress = (pct / 100f).coerceIn(0f, 1f), progressColor = palette.accent2)
         }
         StatTile("Terlaris", top?.name ?: "-", top?.let { "${it.qty.toLong()} terjual" } ?: "Belum ada",
-            MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
-        StatTile("Promo aktif", "${activePromos.size}", activePromos.firstOrNull()?.name ?: "Tidak ada",
-            palette.promo, palette.onPromo, palette.onPromo.copy(alpha = 0.75f))
+            SolidColor(surface), MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
+        StatTile("Promo aktif · ${activePromos.size}", activePromos.firstOrNull()?.name ?: "Tidak ada", activePromos.firstOrNull()?.describe() ?: "Buat di Kelola › Promo",
+            SolidColor(palette.promo), palette.onPromo, palette.onPromo.copy(alpha = 0.8f), border = if (palette.glass) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f) else null)
     }
 }
 
 @Composable
-private fun StatTile(label: String, value: String, sub: String, bg: Color, fg: Color, muted: Color, width: androidx.compose.ui.unit.Dp = 150.dp) {
-    Surface(Modifier.width(width), shape = RoundedCornerShape(18.dp), color = bg, contentColor = fg) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Text(label, fontSize = 12.sp, color = muted)
-            Text(value, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(sub, fontSize = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun StatTile(
+    label: String, value: String, sub: String, bg: Brush, fg: Color, muted: Color,
+    width: androidx.compose.ui.unit.Dp = 160.dp, big: Boolean = false, border: Color? = null,
+    progress: Float? = null, progressColor: Color = Color.Unspecified,
+) {
+    val outline = border ?: if (LocalPalette.current.glass) Color.White.copy(alpha = 0.08f) else null
+    Box(
+        Modifier.width(width).clip(RoundedCornerShape(22.dp)).background(bg)
+            .then(if (outline != null) Modifier.border(1.dp, outline, RoundedCornerShape(22.dp)) else Modifier),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Text(label, fontSize = 12.sp, color = muted, maxLines = 1)
+            Text(value, color = fg, fontFamily = Display, fontSize = if (big) 24.sp else 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (progress != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                    Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.08f))) {
+                        Box(Modifier.fillMaxWidth(progress).height(6.dp).clip(RoundedCornerShape(3.dp)).background(progressColor))
+                    }
+                    Text(" $sub", fontSize = 12.sp, color = progressColor, fontWeight = FontWeight.SemiBold)
+                }
+            } else Text(sub, fontSize = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -374,21 +413,31 @@ private fun ProductTile(repo: PosRepository, i: Item, qty: Int, onAdd: () -> Uni
     val photo = remember(p.id, p.updatedAt) { repo.localImage(p.id).takeIf { p.imagePath != null && it.exists() } }
     val tile = palette.tiles[(p.name.hashCode() and 0x7fffffff) % palette.tiles.size]
     val selected = qty > 0
+    val primary = MaterialTheme.colorScheme.primary
+    val ring = when {
+        selected -> Modifier.border(1.5.dp, primary, RoundedCornerShape(22.dp))
+        palette.glass -> Modifier.border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+        else -> Modifier
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(18.dp)) else Modifier)
-            .clip(RoundedCornerShape(18.dp))
+            .then(if (selected && palette.glass) Modifier.shadow(14.dp, RoundedCornerShape(22.dp), spotColor = primary, ambientColor = primary) else Modifier)
+            .then(ring)
+            .clip(RoundedCornerShape(22.dp))
             .combinedClickable(onClick = onAdd, onLongClick = onLong),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = if (palette.glass) Color.White.copy(alpha = 0.035f) else MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.padding(8.dp)) {
-            Box(Modifier.fillMaxWidth().aspectRatio(1.25f).clip(RoundedCornerShape(14.dp)).background(tile.first)) {
+            val art = if (palette.glass) Brush.radialGradient(listOf(tile.second.copy(alpha = 0.22f), tile.first), center = Offset(220f, 0f), radius = 420f) else SolidColor(tile.first)
+            Box(Modifier.fillMaxWidth().aspectRatio(1.25f).clip(RoundedCornerShape(16.dp)).background(art)) {
                 if (photo != null) AsyncImage(photo, p.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                else Text(p.name.take(2).uppercase(), Modifier.align(Alignment.Center), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = tile.second)
+                else Text(p.name.take(2).uppercase(), Modifier.align(Alignment.Center), fontFamily = Display, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = tile.second)
                 if (i.promo) {
-                    Surface(Modifier.padding(6.dp).align(Alignment.TopStart), shape = RoundedCornerShape(8.dp), color = palette.promo, contentColor = palette.onPromo) {
+                    Surface(Modifier.padding(6.dp).align(Alignment.TopStart), shape = RoundedCornerShape(8.dp),
+                        color = if (palette.glass) MaterialTheme.colorScheme.tertiary else palette.promo,
+                        contentColor = if (palette.glass) MaterialTheme.colorScheme.onTertiary else palette.onPromo) {
                         Text("PROMO", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                     }
                 }
@@ -401,7 +450,7 @@ private fun ProductTile(repo: PosRepository, i: Item, qty: Int, onAdd: () -> Uni
             }
             Text(p.name, Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, lineHeight = 17.sp)
             Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(rupiah(i.price), Modifier.weight(1f), fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                Text(rupiah(i.price), Modifier.weight(1f), fontFamily = Display, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 if (i.price != p.price) Text(rupiah(p.price), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -412,9 +461,15 @@ private fun ProductTile(repo: PosRepository, i: Item, qty: Int, onAdd: () -> Uni
 private fun PhoneCartBar(s: CartState, onOpen: () -> Unit) {
     val palette = LocalPalette.current
     val count = s.lines.sumOf { it.qty }
+    val glass = palette.glass
     Surface(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).clickable(enabled = count > 0, onClick = onOpen),
-        shape = RoundedCornerShape(20.dp), color = palette.hero, contentColor = palette.onHero,
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+            .then(if (glass) Modifier.shadow(24.dp, RoundedCornerShape(26.dp)) else Modifier)
+            .clickable(enabled = count > 0, onClick = onOpen),
+        shape = RoundedCornerShape(26.dp),
+        color = if (glass) Color(0xF0141A26) else palette.hero,
+        contentColor = palette.onHero,
+        border = if (glass) BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)) else null,
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
             if (count > 0) {
@@ -429,11 +484,14 @@ private fun PhoneCartBar(s: CartState, onOpen: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(if (count == 0) "Keranjang kosong" else "$count item · lihat detail", fontSize = 12.sp, color = palette.onHeroMuted)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(rupiah(s.total), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(rupiah(s.total), fontFamily = Display, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         if (s.discount > 0) Text("  hemat ${rupiah(s.discount)}", fontSize = 12.sp, color = palette.onHeroMuted)
                     }
                 }
-                Button(enabled = count > 0 && s.canSell, onClick = s.onPay) { Text(if (s.canSell) "Bayar" else "Terkunci") }
+                Button(
+                    enabled = count > 0 && s.canSell, onClick = s.onPay, shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.height(52.dp),
+                ) { Text(if (s.canSell) "Bayar →" else "Terkunci", fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             }
         }
     }
@@ -444,7 +502,7 @@ private fun CartPanel(s: CartState, modifier: Modifier) {
     val palette = LocalPalette.current
     Column(modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Pesanan", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            Text("Pesanan", fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, modifier = Modifier.weight(1f))
             if (s.lines.isNotEmpty()) TextButton(onClick = s.onClear) { Text("Kosongkan") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -494,12 +552,15 @@ private fun CartPanel(s: CartState, modifier: Modifier) {
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Total", Modifier.weight(1f), fontWeight = FontWeight.Bold)
-            Text(rupiah(s.total), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            Text(rupiah(s.total), fontFamily = Display, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
         }
+        val primary = MaterialTheme.colorScheme.primary
         Button(
             enabled = s.lines.isNotEmpty() && s.canSell, onClick = s.onPay,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(52.dp), shape = RoundedCornerShape(16.dp),
-        ) { Text(if (s.canSell) "Bayar ${rupiah(s.total)}" else "Terkunci", fontWeight = FontWeight.Bold) }
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(58.dp)
+                .then(if (palette.glass && s.lines.isNotEmpty()) Modifier.shadow(18.dp, RoundedCornerShape(18.dp), spotColor = primary, ambientColor = primary) else Modifier),
+            shape = RoundedCornerShape(18.dp),
+        ) { Text(if (s.canSell) "Bayar ${rupiah(s.total)}  →" else "Terkunci", fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
     }
 }
 

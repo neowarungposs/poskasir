@@ -41,6 +41,11 @@ import androidx.compose.ui.unit.dp
 import com.neowarungposs.poskasir.core.SupabaseClient
 import com.neowarungposs.poskasir.core.friendlyError
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 
 @Composable
 fun LoginScreen(
@@ -64,10 +69,17 @@ fun LoginScreen(
     var info by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    Box(Modifier.fillMaxSize()) {
+    val glass = LocalPalette.current.glass
+    val bgColor = MaterialTheme.colorScheme.background
+    AppBackground {
     if (background != null) {
         AsyncImage(model = background, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+        Box(
+            Modifier.fillMaxSize().background(
+                if (glass) Brush.verticalGradient(0.25f to Color.Transparent, 0.62f to bgColor.copy(alpha = 0.85f), 0.8f to bgColor)
+                else SolidColor(Color.Black.copy(alpha = 0.45f)),
+            ),
+        )
     }
     Column(
         Modifier
@@ -77,16 +89,21 @@ fun LoginScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+    if (glass) Spacer(Modifier.height(if (background != null) 200.dp else 80.dp))
     Card(
         modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().padding(top = 32.dp),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = glassColor()),
+        border = glassBorder(),
     ) {
     Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (logo != null) {
-            AsyncImage(model = logo, contentDescription = "Logo", contentScale = ContentScale.Fit,
-                modifier = Modifier.size(84.dp).clip(RoundedCornerShape(20.dp)))
+            AsyncImage(model = logo, contentDescription = "Logo", contentScale = ContentScale.Crop,
+                modifier = Modifier.size(84.dp)
+                    .then(if (glass) Modifier.shadow(20.dp, RoundedCornerShape(26.dp), spotColor = MaterialTheme.colorScheme.primary, ambientColor = MaterialTheme.colorScheme.primary) else Modifier)
+                    .clip(RoundedCornerShape(26.dp)))
         }
-        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
         Text(subtitle, style = MaterialTheme.typography.bodyLarge)
         OutlinedTextField(
             value = email, onValueChange = { email = it }, label = { Text("Email") },
@@ -103,9 +120,10 @@ fun LoginScreen(
         info?.let { Banner(it, GreenSoft, GreenDark) }
         Button(
             enabled = !busy && email.contains("@") && password.length >= 6,
+            shape = RoundedCornerShape(18.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(56.dp),
             onClick = {
                 busy = true; error = null; info = null
                 scope.launch {

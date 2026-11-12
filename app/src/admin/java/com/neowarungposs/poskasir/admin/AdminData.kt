@@ -93,6 +93,17 @@ class AdminRepo(private val c: SupabaseClient) {
         c.get("payment_confirmations?select=*,tenants(business_name,customer_code,pay_code,phone_wa)&status=eq.$status&order=created_at.asc&limit=200")
     )
 
+    /** Contact changes made by the owner (D28), newest first: (time, "old -> new"). */
+    suspend fun contactLog(tenantId: String): List<Pair<String, String>> =
+        (AppJson.parseToJsonElement(c.get("audit_logs?select=created_at,payload&tenant_id=eq.$tenantId&action=eq.UPDATE_CONTACT&order=created_at.desc&limit=20"))
+            as kotlinx.serialization.json.JsonArray).map { row ->
+            val o = row as kotlinx.serialization.json.JsonObject
+            val p = o["payload"] as? kotlinx.serialization.json.JsonObject
+            fun f(k: String) = (p?.get(k) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.content ?: "-"
+            val opt = if (f("old_opt_in") != f("new_opt_in")) " · pengingat ${if (f("new_opt_in") == "true") "ON" else "OFF"}" else ""
+            ((o["created_at"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "") to "${f("old_phone")} → ${f("new_phone")}$opt"
+        }
+
     suspend fun claimsForTenant(tenantId: String): List<Claim> = AppJson.decodeFromString(
         c.get("payment_confirmations?select=*&tenant_id=eq.$tenantId&order=created_at.desc&limit=50")
     )

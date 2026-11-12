@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERSION_TAG: v1.2.0
+  VERSION_TAG: v1.2.1
 
 jobs:
   build:
@@ -39,6 +39,13 @@ jobs:
           printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
 
       - uses: gradle/actions/setup-gradle@v4
+
+      - name: Fetch display font (Space Grotesk, SIL OFL)
+        run: |
+          mkdir -p app/src/main/res/font
+          curl -fsSL --retry 4 --retry-delay 3 -o app/src/main/res/font/space_grotesk.ttf \
+            "https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf"
+          test "$(stat -c%s app/src/main/res/font/space_grotesk.ttf)" -gt 50000
 
       - name: Build tenant and admin APKs
         run: |

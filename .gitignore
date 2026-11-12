@@ -16,3 +16,4 @@ captures/
 # Firebase config comes from the GOOGLE_SERVICES_JSON secret, never committed
 app/google-services.json
 google-services.json
+app/src/main/res/font/space_grotesk.ttf
