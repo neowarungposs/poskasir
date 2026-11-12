@@ -78,6 +78,7 @@ fun LanggananScreen(container: AppContainer, repo: PosRepository, isAdmin: Boole
             Text("Status langganan belum tersedia. Sambungkan internet lalu tekan Cek Status.")
         } else {
             val gate = repo.gate()
+            val days = gate.daysLeft
             val label = when (gate.state) {
                 GateState.GRACE -> "GRACE"
                 GateState.EXPIRED -> "EXPIRED"
@@ -101,7 +102,6 @@ fun LanggananScreen(container: AppContainer, repo: PosRepository, isAdmin: Boole
                     )
                 }
             }
-            val days = gate.daysLeft
             when {
                 gate.state == GateState.EXPIRED -> Banner(
                     "Langganan sudah berakhir. Data Anda aman: riwayat dan laporan tetap bisa dibuka dan diekspor ke Excel. " +
