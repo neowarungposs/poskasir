@@ -22,7 +22,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = ciBuildNumber
-        versionName = "1.2.1"
+        versionName = "1.2.2"
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
     }
@@ -51,8 +51,26 @@ android {
         }
     }
 
+    // One stable key for every build so new APKs install over old ones (D30).
+    // CI writes app/keystore.jks from the ANDROID_KEYSTORE_BASE64 secret; never commit it.
+    val stableKeystore = file("keystore.jks")
+    signingConfigs {
+        create("stable") {
+            if (stableKeystore.exists()) {
+                storeFile = stableKeystore
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (stableKeystore.exists()) signingConfig = signingConfigs.getByName("stable")
+        }
         release {
+            if (stableKeystore.exists()) signingConfig = signingConfigs.getByName("stable")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

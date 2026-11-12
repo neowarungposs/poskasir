@@ -32,6 +32,7 @@ class MainActivity : FragmentActivity() {
             PosTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     FlavorRoot(container = container, activity = this)
+                    com.neowarungposs.poskasir.update.UpdatePrompt()
                 }
             }
         }
