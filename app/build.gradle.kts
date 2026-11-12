@@ -22,7 +22,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = ciBuildNumber
-        versionName = "1.0.0"
+        versionName = "1.1.0"
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
     }
@@ -50,8 +50,14 @@ android {
 
     // POS code ships only in tenant + direct; admin code only in admin (D3).
     sourceSets {
-        getByName("tenant") { java.srcDir("src/pos/java") }
-        getByName("direct") { java.srcDir("src/pos/java") }
+        getByName("tenant") {
+            java.srcDir("src/pos/java")
+            manifest.srcFile("src/pos/AndroidManifest.xml")
+        }
+        getByName("direct") {
+            java.srcDir("src/pos/java")
+            manifest.srcFile("src/pos/AndroidManifest.xml")
+        }
     }
 
     buildTypes {

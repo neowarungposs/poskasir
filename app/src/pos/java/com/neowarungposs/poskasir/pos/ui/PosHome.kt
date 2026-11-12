@@ -47,8 +47,8 @@ fun PosHome(container: AppContainer, repo: PosRepository, claims: Claims) {
     val isAdmin = claims.appRole == "TENANT_ADMIN"
     val tabs = buildList {
         add(Tab("Kasir", Icons.Filled.PointOfSale))
-        if (isAdmin) add(Tab("Produk", Icons.Filled.Inventory2))
         add(Tab("Riwayat", Icons.Filled.ReceiptLong))
+        if (isAdmin) add(Tab("Kelola", Icons.Filled.Inventory2))
         add(Tab("Langganan", Icons.Filled.CardMembership))
         add(Tab("Akun", Icons.Filled.AccountCircle))
     }
@@ -91,7 +91,7 @@ fun PosHome(container: AppContainer, repo: PosRepository, claims: Claims) {
             GateBanner(gate)
             when (tabs.getOrNull(selected)?.label) {
                 "Kasir" -> KasirScreen(repo, gate, isAdmin)
-                "Produk" -> ProdukScreen(repo)
+                "Kelola" -> KelolaScreen(repo)
                 "Riwayat" -> RiwayatScreen(repo)
                 "Langganan" -> LanggananScreen(container, repo)
                 "Akun" -> AkunScreen(container, repo, claims)

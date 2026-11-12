@@ -2,6 +2,9 @@
 
 package com.neowarungposs.poskasir.pos.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import com.neowarungposs.poskasir.core.ImageCompressor
 import com.neowarungposs.poskasir.core.friendlyError
 import com.neowarungposs.poskasir.core.rupiah
 import com.neowarungposs.poskasir.pos.PosRepository
@@ -93,8 +98,8 @@ fun ProdukScreen(repo: PosRepository) {
         ProductDialog(
             initial = editing,
             onDismiss = { creating = false; editing = null },
-            onSave = { name, cat, price, active ->
-                repo.saveProduct(editing?.id, name, cat, price, active)
+            onSave = { name, cat, price, active, photo ->
+                repo.saveProduct(editing?.id, name, cat, price, active, photo)
                 creating = false; editing = null
             },
         )
@@ -119,8 +124,19 @@ fun ProdukScreen(repo: PosRepository) {
 private fun ProductDialog(
     initial: ProductEntity?,
     onDismiss: () -> Unit,
-    onSave: suspend (String, String?, Long, Boolean) -> Unit,
+    onSave: suspend (String, String?, Long, Boolean, ByteArray?) -> Unit,
 ) {
+    var photo by remember { mutableStateOf<ByteArray?>(null) }
+    var compressing by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val photoScope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) photoScope.launch {
+            compressing = true
+            try { photo = ImageCompressor.toWebp(context, uri) } catch (e: Exception) { photo = null }
+            compressing = false
+        }
+    }
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var category by remember { mutableStateOf(initial?.category ?: "") }
     var price by remember { mutableStateOf(initial?.price?.toString() ?: "") }
@@ -141,6 +157,20 @@ private fun ProductDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        when {
+                            compressing -> "Mengompres foto..."
+                            photo != null -> "Foto baru: ${photo!!.size / 1024} KB (WebP)"
+                            initial?.imagePath != null -> "Sudah ada foto"
+                            else -> "Belum ada foto"
+                        },
+                        modifier = Modifier.weight(1f), fontSize = 13.sp,
+                    )
+                    TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                        Text("Pilih foto")
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Aktif dijual", modifier = Modifier.weight(1f))
                     Switch(checked = active, onCheckedChange = { active = it })
                 }
@@ -149,12 +179,12 @@ private fun ProductDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = !busy && name.isNotBlank() && price.toLongOrNull() != null,
+                enabled = !busy && !compressing && name.isNotBlank() && price.toLongOrNull() != null,
                 onClick = {
                     busy = true
                     scope.launch {
                         try {
-                            onSave(name, category, price.toLong(), active)
+                            onSave(name, category, price.toLong(), active, photo)
                         } catch (e: Exception) {
                             error = friendlyError(e); busy = false
                         }

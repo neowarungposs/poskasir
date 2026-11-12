@@ -1,6 +1,7 @@
 package com.neowarungposs.poskasir.pos
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -12,6 +13,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "products")
@@ -24,6 +27,7 @@ data class ProductEntity(
     val isActive: Boolean,
     val deleted: Boolean,
     val updatedAt: String?,
+    val imagePath: String? = null,
 )
 
 @Entity(tableName = "orders")
@@ -36,6 +40,7 @@ data class OrderEntity(
     val cashReceived: Long?,
     val createdAtMs: Long,
     val synced: Boolean,
+    @ColumnInfo(defaultValue = "PAID") val status: String = "PAID",
 )
 
 @Entity(tableName = "order_items", indices = [Index("orderId")])
@@ -71,6 +76,15 @@ abstract class PosDao {
         insertOrder(order)
         insertItems(items)
     }
+
+    @Query("UPDATE orders SET status = :status WHERE id IN (:ids)")
+    abstract suspend fun setStatus(ids: List<String>, status: String)
+
+    @Query("SELECT * FROM orders WHERE id = :id")
+    abstract suspend fun order(id: String): OrderEntity?
+
+    @Query("SELECT * FROM products WHERE id = :id")
+    abstract suspend fun product(id: String): ProductEntity?
 
     @Query("SELECT * FROM orders ORDER BY createdAtMs DESC LIMIT 500")
     abstract fun ordersFlow(): Flow<List<OrderEntity>>
@@ -119,7 +133,7 @@ abstract class PosDao {
 
 @Database(
     entities = [ProductEntity::class, OrderEntity::class, OrderItemEntity::class, KvEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -131,7 +145,16 @@ abstract class PosDatabase : RoomDatabase() {
 
         fun get(context: Context): PosDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, PosDatabase::class.java, "pos.db")
+                .addMigrations(MIGRATION_1_2)
                 .build().also { instance = it }
         }
+    }
+}
+
+/** v1.1: void status on orders, product photo path. */
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'PAID'")
+        db.execSQL("ALTER TABLE products ADD COLUMN imagePath TEXT")
     }
 }

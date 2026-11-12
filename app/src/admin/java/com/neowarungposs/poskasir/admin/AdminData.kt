@@ -125,6 +125,16 @@ class AdminRepo(private val c: SupabaseClient) {
 
     suspend fun signedProof(path: String): String? = c.signedUrl("payment-proofs", path)
 
+    suspend fun globalQrisUrl(path: String): String? = c.signedUrl("system-assets", path)
+
+    /** Global QRIS is stored as-is (lossless) so it stays scannable. */
+    suspend fun uploadGlobalQris(bytes: ByteArray, contentType: String, ext: String): String {
+        val path = "global/qris-${System.currentTimeMillis()}.$ext"
+        c.upload("system-assets", path, bytes, contentType)
+        c.patch("system_settings?id=eq.1", buildJsonObject { put("global_qris_path", path) }.toString())
+        return path
+    }
+
     suspend fun decode(amount: Long): DecodeRow? = AppJson.decodeFromString<List<DecodeRow>>(
         c.rpc("decode_amount", buildJsonObject { put("p_amount", amount) })
     ).firstOrNull()

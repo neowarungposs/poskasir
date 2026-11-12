@@ -58,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -83,7 +84,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
     val products by repo.dao.productsFlow().collectAsState(initial = emptyList())
-    val active = products.filter { it.isActive }
+    var outletId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { outletId = repo.currentOutlet()?.id }
+    // Products with no outlet are sold everywhere; others only in their outlet.
+    val active = products.filter { it.isActive && (it.outletId == null || it.outletId == outletId) }
     val cart = remember { mutableStateMapOf<String, Int>() }
     var query by rememberSaveable { mutableStateOf("") }
     var grid by rememberSaveable { mutableStateOf(true) }
@@ -125,7 +129,7 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(shown, key = { it.id }) { p -> ProductCard(p, cart[p.id] ?: 0, { cart[p.id] = (cart[p.id] ?: 0) + 1 }, { dec(cart, p.id) }) }
+                    items(shown, key = { it.id }) { p -> ProductCard(repo, p, cart[p.id] ?: 0, { cart[p.id] = (cart[p.id] ?: 0) + 1 }, { dec(cart, p.id) }) }
                 }
             } else {
                 LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -176,7 +180,8 @@ private fun dec(cart: MutableMap<String, Int>, id: String) {
 }
 
 @Composable
-private fun ProductCard(p: ProductEntity, qty: Int, onAdd: () -> Unit, onRemove: () -> Unit) {
+private fun ProductCard(repo: PosRepository, p: ProductEntity, qty: Int, onAdd: () -> Unit, onRemove: () -> Unit) {
+    val photo = remember(p.id, p.updatedAt) { repo.localImage(p.id).takeIf { p.imagePath != null && it.exists() } }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -191,7 +196,16 @@ private fun ProductCard(p: ProductEntity, qty: Int, onAdd: () -> Unit, onRemove:
                     .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(p.name.take(1).uppercase(), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = GreenDark)
+                if (photo != null) {
+                    AsyncImage(
+                        model = photo, contentDescription = p.name, contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(10.dp)),
+                    )
+                } else {
+                    Text(p.name.take(1).uppercase(), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = GreenDark)
+                }
             }
             Text(p.name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically) {

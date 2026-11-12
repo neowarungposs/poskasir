@@ -2,6 +2,8 @@
 
 package com.neowarungposs.poskasir.pos.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,7 +15,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +44,9 @@ import com.neowarungposs.poskasir.AppContainer
 import com.neowarungposs.poskasir.core.Claims
 import com.neowarungposs.poskasir.core.FcmRegistrar
 import com.neowarungposs.poskasir.core.friendlyError
+import com.neowarungposs.poskasir.pos.BluetoothPrinter
+import com.neowarungposs.poskasir.pos.OrderEntity
+import com.neowarungposs.poskasir.pos.PairedPrinter
 import com.neowarungposs.poskasir.pos.PosRepository
 import com.neowarungposs.poskasir.pos.SyncScheduler
 import com.neowarungposs.poskasir.ui.Banner
@@ -145,6 +154,8 @@ fun AkunScreen(container: AppContainer, repo: PosRepository, claims: Claims) {
             }
         }
 
+        PrinterCard(repo) { info = it }
+
         info?.let { Banner(it, GreenSoft, GreenDark) }
         ErrorText(errorMsg)
 
@@ -197,6 +208,74 @@ fun AkunScreen(container: AppContainer, repo: PosRepository, claims: Claims) {
                 }
             },
             onDismiss = { confirmDelete = false; deleteText = "" },
+        )
+    }
+}
+
+@Composable
+private fun PrinterCard(repo: PosRepository, onInfo: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf<String?>(null) }
+    var width by remember { mutableStateOf(32) }
+    var choosing by remember { mutableStateOf(false) }
+    var printers by remember { mutableStateOf<List<PairedPrinter>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) { printers = BluetoothPrinter.pairedPrinters(context); choosing = true }
+        else error = "Izin Bluetooth ditolak. Printer tidak bisa dipakai."
+    }
+    LaunchedEffect(Unit) { name = repo.printerName(); width = repo.paperWidth() }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Printer Bluetooth", fontWeight = FontWeight.Bold)
+            Text("Printer: ${name ?: "belum dipilih"}. Pasangkan (pair) printer dulu di Pengaturan Bluetooth HP.")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = width == 32, onClick = { width = 32; scope.launch { repo.setPaperWidth(32) } }, label = { Text("58 mm") })
+                FilterChip(selected = width == 48, onClick = { width = 48; scope.launch { repo.setPaperWidth(48) } }, label = { Text("80 mm") })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    error = null
+                    if (Build.VERSION.SDK_INT >= 31 && !BluetoothPrinter.hasPermission(context)) {
+                        permission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                    } else {
+                        printers = BluetoothPrinter.pairedPrinters(context)
+                        choosing = true
+                    }
+                }) { Text("Pilih printer") }
+                OutlinedButton(enabled = name != null, onClick = {
+                    error = null
+                    scope.launch {
+                        try {
+                            val test = OrderEntity("test", "", "TES-PRINT", "CASH", 0, null, System.currentTimeMillis(), true)
+                            repo.printReceipt(test, emptyList())
+                            onInfo("Tes cetak terkirim.")
+                        } catch (e: Exception) { error = e.message }
+                    }
+                }) { Text("Tes cetak") }
+            }
+            ErrorText(error)
+        }
+    }
+
+    if (choosing) {
+        AlertDialog(
+            onDismissRequest = { choosing = false },
+            title = { Text("Printer yang sudah dipasangkan") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (printers.isEmpty()) Text("Tidak ada. Nyalakan Bluetooth dan pasangkan printer di pengaturan HP.")
+                    printers.forEach { p ->
+                        TextButton(onClick = {
+                            scope.launch { repo.setPrinter(p) }
+                            name = p.name; choosing = false
+                        }) { Text("${p.name} (${p.address})") }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { choosing = false }) { Text("Tutup") } },
         )
     }
 }

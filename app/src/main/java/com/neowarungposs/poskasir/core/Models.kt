@@ -44,6 +44,7 @@ data class Outlet(
     val address: String? = null,
     val merchantQrisPath: String? = null,
     val isMain: Boolean = false,
+    val deletedAt: String? = null,
 )
 
 @Serializable

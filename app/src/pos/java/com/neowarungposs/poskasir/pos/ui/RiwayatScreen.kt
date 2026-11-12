@@ -2,6 +2,10 @@
 
 package com.neowarungposs.poskasir.pos.ui
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -34,7 +38,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.platform.LocalContext
+import com.neowarungposs.poskasir.core.ApiException
 import com.neowarungposs.poskasir.core.formatDateTime
+import com.neowarungposs.poskasir.core.friendlyError
+import com.neowarungposs.poskasir.pos.BluetoothPrinter
+import com.neowarungposs.poskasir.ui.Banner
+import com.neowarungposs.poskasir.ui.ErrorText
+import com.neowarungposs.poskasir.ui.RedSoft
+import com.neowarungposs.poskasir.ui.RedText
 import com.neowarungposs.poskasir.core.rupiah
 import com.neowarungposs.poskasir.pos.OrderEntity
 import com.neowarungposs.poskasir.pos.OrderItemEntity
@@ -53,7 +66,7 @@ fun RiwayatScreen(repo: PosRepository) {
     var open by remember { mutableStateOf<Pair<OrderEntity, List<OrderItemEntity>>?>(null) }
     val scope = rememberCoroutineScope()
     val today = remember { repo.todayStartMs() }
-    val todays = orders.filter { it.createdAtMs >= today }
+    val todays = orders.filter { it.createdAtMs >= today && it.status != "VOIDED" }
 
     LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -79,7 +92,11 @@ fun RiwayatScreen(repo: PosRepository) {
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(rupiah(o.total), fontWeight = FontWeight.Bold)
-                        if (o.synced) Pill("Tersinkron", GreenSoft, GreenDark) else Pill("Belum sinkron", AmberSoft, Amber)
+                        when {
+                            o.status == "VOIDED" -> Pill("VOID", RedSoft, RedText)
+                            o.synced -> Pill("Tersinkron", GreenSoft, GreenDark)
+                            else -> Pill("Belum sinkron", AmberSoft, Amber)
+                        }
                     }
                 }
             }
@@ -97,9 +114,19 @@ fun methodLabel(m: String) = when (m) {
 fun InvoiceDialog(repo: PosRepository, order: OrderEntity, items: List<OrderItemEntity>, onClose: () -> Unit) {
     var business by remember { mutableStateOf("") }
     var outlet by remember { mutableStateOf("") }
+    var current by remember { mutableStateOf(order) }
+    var info by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var voiding by remember { mutableStateOf(false) }
+    var reason by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val btPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(order.id) {
         business = repo.businessName()
         outlet = repo.currentOutlet()?.name ?: ""
+        current = repo.dao.order(order.id) ?: order
     }
     Dialog(onDismissRequest = onClose) {
         Card {
@@ -112,6 +139,7 @@ fun InvoiceDialog(repo: PosRepository, order: OrderEntity, items: List<OrderItem
                 Text(business, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 if (outlet.isNotEmpty()) Text(outlet, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), fontSize = 13.sp)
                 DashedDivider()
+                if (current.status == "VOIDED") Pill("VOID", RedSoft, RedText)
                 Mono(order.invoiceNo)
                 Mono(formatDateTime(order.createdAtMs))
                 DashedDivider()
@@ -138,7 +166,40 @@ fun InvoiceDialog(repo: PosRepository, order: OrderEntity, items: List<OrderItem
                 }
                 DashedDivider()
                 Text("Terima kasih!", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) { Text("Tutup") }
+                info?.let { Banner(it, GreenSoft, GreenDark) }
+                ErrorText(error)
+                if (voiding) {
+                    OutlinedTextField(reason, { reason = it }, label = { Text("Alasan void") })
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (current.status != "VOIDED") {
+                        TextButton(enabled = !busy && (!voiding || reason.isNotBlank()), onClick = {
+                            if (!voiding) { voiding = true; return@TextButton }
+                            busy = true; error = null
+                            scope.launch {
+                                try {
+                                    repo.requestVoid(current, reason.trim())
+                                    info = "Permintaan void dikirim ke pemilik."
+                                    voiding = false
+                                } catch (e: Exception) {
+                                    error = if ((e as? ApiException)?.code == "VOID_ALREADY_PENDING") "Void untuk struk ini sudah diajukan." else friendlyError(e)
+                                }
+                                busy = false
+                            }
+                        }) { Text(if (voiding) "Kirim void" else "Ajukan void", color = RedText) }
+                    }
+                    TextButton(enabled = !busy, onClick = {
+                        if (Build.VERSION.SDK_INT >= 31 && !BluetoothPrinter.hasPermission(context)) {
+                            btPermission.launch(Manifest.permission.BLUETOOTH_CONNECT); return@TextButton
+                        }
+                        busy = true; error = null
+                        scope.launch {
+                            try { repo.printReceipt(current, items); info = "Struk dicetak." } catch (e: Exception) { error = e.message ?: friendlyError(e) }
+                            busy = false
+                        }
+                    }) { Text("Cetak") }
+                    TextButton(onClick = onClose) { Text("Tutup") }
+                }
             }
         }
     }

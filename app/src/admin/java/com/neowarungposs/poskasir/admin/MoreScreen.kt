@@ -3,6 +3,12 @@
 package com.neowarungposs.poskasir.admin
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -248,11 +254,31 @@ private fun SettingsScreen(repo: AdminRepo) {
     var info by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var qrisUrl by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = true; error = null
+            try {
+                val type = context.contentResolver.getType(uri) ?: "image/png"
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw IllegalArgumentException("Gagal membaca gambar")
+                if (bytes.size > 2 * 1024 * 1024) throw IllegalArgumentException("Gambar maks 2 MB")
+                val ext = if (type.contains("png")) "png" else if (type.contains("webp")) "webp" else "jpg"
+                val path = repo.uploadGlobalQris(bytes, type, ext)
+                qrisUrl = repo.globalQrisUrl(path)
+                info = "QRIS langganan tersimpan."
+            } catch (e: Exception) { error = if (e is IllegalArgumentException) e.message else friendlyError(e) }
+            busy = false
+        }
+    }
 
     LaunchedEffect(Unit) {
         try {
             val s = repo.settings()
+            qrisUrl = s.globalQrisPath?.let { repo.globalQrisUrl(it) }
             monthly = s.monthlyBasePrice.toString(); bank = s.bankDetailsText ?: ""; payUrl = s.paymentPageUrl ?: ""
             grace = s.graceDays.toString(); offline = s.maxOfflineDays.toString()
             val r = repo.reminderSettings()
@@ -268,6 +294,17 @@ private fun SettingsScreen(repo: AdminRepo) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Text("QRIS pembayaran langganan", fontWeight = FontWeight.Bold)
+        Text("Tampil di halaman bayar web. Diunggah apa adanya (tanpa kompresi) supaya tetap bisa di-scan.", fontSize = 12.sp)
+        qrisUrl?.let {
+            AsyncImage(it, "QRIS langganan", contentScale = ContentScale.Fit, modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 260.dp))
+        }
+        OutlinedButton(enabled = !busy, onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+            Text(if (qrisUrl == null) "Unggah QRIS" else "Ganti QRIS")
+        }
+
         Text("Sistem", fontWeight = FontWeight.Bold)
         OutlinedTextField(monthly, { monthly = it.filter(Char::isDigit) }, label = { Text("Harga dasar per bulan (kelipatan 1000)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(bank, { bank = it }, label = { Text("Info rekening bank") }, modifier = Modifier.fillMaxWidth())
