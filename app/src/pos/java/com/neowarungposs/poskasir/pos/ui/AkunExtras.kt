@@ -168,6 +168,7 @@ fun ReceiptCard(repo: PosRepository, onInfo: (String) -> Unit) {
     var footer by remember(o) { mutableStateOf(o.receiptFooter ?: "") }
     var phone by remember(o) { mutableStateOf(o.phone ?: "") }
     var showLogo by remember(o) { mutableStateOf(o.receiptShowLogo) }
+    var showPreview by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -185,23 +186,9 @@ fun ReceiptCard(repo: PosRepository, onInfo: (String) -> Unit) {
                 Text("Cetak logo di struk", Modifier.weight(1f))
                 Switch(checked = showLogo, onCheckedChange = { showLogo = it })
             }
-            Text("Pratinjau", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Surface(color = Color(0xFFFFFDF7), contentColor = Color(0xFF222222), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    val mono = FontFamily.Monospace
-                    if (showLogo && repo.container.branding.logo() != null) Text("[logo]", fontFamily = mono, fontSize = 11.sp)
-                    Text(business, fontFamily = mono, fontWeight = FontWeight.Bold)
-                    Text(o.name, fontFamily = mono, fontSize = 12.sp)
-                    if (phone.isNotBlank()) Text("Telp $phone", fontFamily = mono, fontSize = 12.sp)
-                    if (header.isNotBlank()) Text(header, fontFamily = mono, fontSize = 12.sp, textAlign = TextAlign.Center)
-                    Text("--------------------------------", fontFamily = mono, fontSize = 12.sp)
-                    Text("1 x Es Teh            5.000", fontFamily = mono, fontSize = 12.sp)
-                    Text("TOTAL                 5.000", fontFamily = mono, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("--------------------------------", fontFamily = mono, fontSize = 12.sp)
-                    Text(footer.ifBlank { "Terima kasih!" }, fontFamily = mono, fontSize = 12.sp, textAlign = TextAlign.Center)
-                }
-            }
             ErrorText(errorMsg)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { showPreview = true }) { Text("Pratinjau") }
             OutlinedButton(enabled = !busy, onClick = {
                 busy = true; errorMsg = null
                 scope.launch {
@@ -210,6 +197,32 @@ fun ReceiptCard(repo: PosRepository, onInfo: (String) -> Unit) {
                     busy = false
                 }
             }) { Text("Simpan struk") }
+            }
         }
+    }
+    if (showPreview) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPreview = false },
+            title = { Text("Pratinjau struk") },
+            text = {
+                Surface(color = Color(0xFFFFFDF7), contentColor = Color(0xFF222222), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        val mono = FontFamily.Monospace
+                        val logoFile = repo.container.branding.logo()
+                        if (showLogo && logoFile != null) AsyncImage(logoFile, "Logo", Modifier.size(64.dp).padding(bottom = 4.dp), contentScale = ContentScale.Fit)
+                        Text(business, fontFamily = mono, fontWeight = FontWeight.Bold)
+                        if (o.name != business) Text(o.name, fontFamily = mono, fontSize = 12.sp)
+                        if (phone.isNotBlank()) Text("Telp $phone", fontFamily = mono, fontSize = 12.sp)
+                        if (header.isNotBlank()) Text(header, fontFamily = mono, fontSize = 12.sp, textAlign = TextAlign.Center)
+                        Text("--------------------------------", fontFamily = mono, fontSize = 12.sp)
+                        Text("1 x Es Teh            5.000", fontFamily = mono, fontSize = 12.sp)
+                        Text("TOTAL                 5.000", fontFamily = mono, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("--------------------------------", fontFamily = mono, fontSize = 12.sp)
+                        Text(footer.ifBlank { "Terima kasih!" }, fontFamily = mono, fontSize = 12.sp, textAlign = TextAlign.Center)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPreview = false }) { Text("Tutup") } },
+        )
     }
 }
