@@ -59,7 +59,7 @@ android {
             if (stableKeystore.exists()) {
                 storeFile = stableKeystore
                 storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyAlias = "kasirwarung" // not secret; fixed so a mistyped secret cannot break signing
                 keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
             }
         }
