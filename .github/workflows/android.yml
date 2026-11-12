@@ -40,16 +40,15 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build tenant, direct and admin APKs
+      - name: Build tenant and admin APKs
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --continue assembleTenantDebug assembleDirectDebug assembleAdminDebug
+          ./gradlew --no-daemon --continue assembleTenantDebug assembleAdminDebug
 
       - name: Collect APKs
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/tenant/debug/app-tenant-debug.apk dist/KasirWarung-tenant-${VERSION_TAG}.apk
-          cp app/build/outputs/apk/direct/debug/app-direct-debug.apk dist/KasirWarung-direct-${VERSION_TAG}.apk
+          cp app/build/outputs/apk/tenant/debug/app-tenant-debug.apk dist/KasirWarung-${VERSION_TAG}.apk
           cp app/build/outputs/apk/admin/debug/app-admin-debug.apk   dist/KasirAdmin-${VERSION_TAG}.apk
           ls -la dist
 
@@ -67,8 +66,7 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Kasir Warung $VERSION_TAG (build ${{ github.run_number }})" \
             --notes "Build ${{ github.run_number }} dari commit ${GITHUB_SHA::7}.
-          - KasirWarung-tenant: versi Play Store (tanpa harga langganan)
-          - KasirWarung-direct: versi APK langsung (dengan info paket)
+          - KasirWarung: aplikasi kasir untuk semua warung (versi Play Store)
           - KasirAdmin: khusus SUPER_ADMIN, jangan dibagikan
 
           APK debug-signed untuk testing."

@@ -34,12 +34,6 @@ android {
             resValue("string", "app_name", "Kasir Warung")
             buildConfigField("boolean", "SHOW_PRICING", "false")
         }
-        create("direct") {
-            dimension = "channel"
-            applicationIdSuffix = ".direct"
-            resValue("string", "app_name", "Kasir Warung")
-            buildConfigField("boolean", "SHOW_PRICING", "true")
-        }
         create("admin") {
             dimension = "channel"
             applicationIdSuffix = ".admin"
@@ -48,13 +42,9 @@ android {
         }
     }
 
-    // POS code ships only in tenant + direct; admin code only in admin (D3).
+    // POS code ships only in tenant; admin code only in admin (D3).
     sourceSets {
         getByName("tenant") {
-            java.srcDir("src/pos/java")
-            manifest.srcFile("src/pos/AndroidManifest.xml")
-        }
-        getByName("direct") {
             java.srcDir("src/pos/java")
             manifest.srcFile("src/pos/AndroidManifest.xml")
         }
