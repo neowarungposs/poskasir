@@ -100,11 +100,19 @@ private fun OutletsTab(repo: PosRepository) {
     var reload by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
+    var surcharge by remember { mutableStateOf(false) }
     LaunchedEffect(reload) { try { list = repo.outlets(); error = null } catch (e: Exception) { error = friendlyError(e) } }
+    LaunchedEffect(Unit) { surcharge = runCatching { repo.outletSurchargeActive() }.getOrDefault(false) }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { ErrorText(error) }
+            item {
+                if (surcharge) Text(
+                    "Cabang pertama sudah termasuk langganan. Tiap cabang tambahan yang aktif ikut dihitung saat perpanjangan; rinciannya dikirim ke WhatsApp/email terdaftar.",
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ErrorText(error)
+            }
             items(list, key = { it.id }) { o ->
                 Card(onClick = { editing = o }, modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {

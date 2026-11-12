@@ -140,7 +140,7 @@ const rp = (n) => "Rp" + Math.round(n).toLocaleString("id-ID");
 const tgl = (d) => new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(new Date(d));
 const msg = (el, text, ok) => { $(el).innerHTML = text ? `<div class="msg ${ok ? "ok" : "err"}"></div>` : ""; if (text) $(el).firstChild.textContent = text; };
 
-let ent, plans = [], monthly = 29000, selected, timer;
+let ent, plans = [], monthly = 29000, selected, timer, extraOutlets = 0;
 
 async function start() {
   const { data } = await sb.auth.getSession();
@@ -159,6 +159,15 @@ async function start() {
   ]);
   plans = p ?? [];
   monthly = s?.monthly_base_price ?? monthly;
+  // Extra-outlet surcharge (D27): server computes the final price for this business.
+  const { data: mp } = await sb.rpc("my_plan_prices");
+  extraOutlets = mp?.extra_outlets ?? 0;
+  plans = plans.map((pl) => {
+    const row = (mp?.plans ?? []).find((r) => r.plan_id === pl.id);
+    const extra = row ? row.price - row.base_price : 0;
+    const extraNormal = extraOutlets * (mp?.extra_outlet_monthly_price ?? 0) * pl.months;
+    return { ...pl, extra, price: pl.price + extra, normal_price: pl.normal_price + extraNormal };
+  });
   $("bank").textContent = s?.bank_details_text || "Belum diatur.";
   if (s?.global_qris_path) {
     const { data: signed } = await sb.storage.from("system-assets").createSignedUrl(s.global_qris_path, 3600);
@@ -201,6 +210,11 @@ function render() {
     $("saveText").append("Hemat ");
     const b = document.createElement("strong"); b.style.color = "var(--accent)"; b.textContent = rp(save); $("saveText").append(b);
     if (free >= 1) $("saveText").append(` — setara ${free} bulan gratis.`);
+  }
+  if (extraOutlets > 0 && selected.extra > 0) {
+    const n = document.createElement("div"); n.className = "muted"; n.style.marginTop = "6px";
+    n.textContent = `Termasuk ${extraOutlets} cabang tambahan: ${rp(selected.extra)}`;
+    $("saveText").append(n);
   }
   $("compare").innerHTML = "";
   plans.forEach((p) => {

@@ -81,6 +81,7 @@ data class Plan(
 @Serializable
 data class SystemSettings(
     val monthlyBasePrice: Long = 29000,
+    val extraOutletMonthlyPrice: Long = 0,
     val globalQrisPath: String? = null,
     val bankDetailsText: String? = null,
     val graceDays: Int = 3,

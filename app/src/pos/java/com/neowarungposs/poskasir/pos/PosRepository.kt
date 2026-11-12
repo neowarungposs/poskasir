@@ -560,6 +560,11 @@ class PosRepository(val container: AppContainer) {
         refreshTenantInfo()
     }
 
+    /** True when the platform charges for extra outlets (D27). The amount is never shown in the app (D1). */
+    suspend fun outletSurchargeActive(): Boolean =
+        (AppJson.parseToJsonElement(client.get("system_settings?select=extra_outlet_monthly_price&id=eq.1")) as JsonArray)
+            .firstOrNull()?.str("extra_outlet_monthly_price")?.toLongOrNull()?.let { it > 0 } ?: false
+
     // ---------------------------------------------------------------- reports & server history (TENANT_ADMIN)
     suspend fun report(fromMs: Long, toMs: Long, outletId: String?): JsonObject =
         AppJson.parseToJsonElement(client.rpc("report_summary", buildJsonObject {

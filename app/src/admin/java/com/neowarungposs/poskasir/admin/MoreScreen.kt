@@ -240,6 +240,7 @@ private fun PlanDialog(repo: AdminRepo, months: Int, current: Plan?, monthly: Lo
 @Composable
 private fun SettingsScreen(repo: AdminRepo) {
     var monthly by remember { mutableStateOf("") }
+    var extraOutlet by remember { mutableStateOf("0") }
     var bank by remember { mutableStateOf("") }
     var payUrl by remember { mutableStateOf("") }
     var grace by remember { mutableStateOf("") }
@@ -279,7 +280,7 @@ private fun SettingsScreen(repo: AdminRepo) {
         try {
             val s = repo.settings()
             qrisUrl = s.globalQrisPath?.let { repo.globalQrisUrl(it) }
-            monthly = s.monthlyBasePrice.toString(); bank = s.bankDetailsText ?: ""; payUrl = s.paymentPageUrl ?: ""
+            monthly = s.monthlyBasePrice.toString(); extraOutlet = s.extraOutletMonthlyPrice.toString(); bank = s.bankDetailsText ?: ""; payUrl = s.paymentPageUrl ?: ""
             grace = s.graceDays.toString(); offline = s.maxOfflineDays.toString()
             val r = repo.reminderSettings()
             rs = r; days = r.daysBefore.joinToString(","); hour = r.runHour.toString(); churn = r.autoChurnAfterDays.toString()
@@ -307,6 +308,8 @@ private fun SettingsScreen(repo: AdminRepo) {
 
         Text("Sistem", fontWeight = FontWeight.Bold)
         OutlinedTextField(monthly, { monthly = it.filter(Char::isDigit) }, label = { Text("Harga dasar per bulan (kelipatan 1000)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(extraOutlet, { extraOutlet = it.filter(Char::isDigit) }, label = { Text("Biaya per cabang tambahan / bulan (0 = gratis)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("Cabang pertama gratis. Ikut diskon paket, dibulatkan ke bawah per Rp1.000.") })
         OutlinedTextField(bank, { bank = it }, label = { Text("Info rekening bank") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(payUrl, { payUrl = it }, label = { Text("URL halaman bayar") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(grace, { grace = it.filter(Char::isDigit) }, label = { Text("Masa tenggang (hari)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -329,9 +332,12 @@ private fun SettingsScreen(repo: AdminRepo) {
                 try {
                     val m = monthly.toLongOrNull() ?: throw IllegalArgumentException("Harga dasar tidak valid")
                     if (m % 1000 != 0L) throw IllegalArgumentException("Harga dasar harus kelipatan 1000")
+                    val ex = extraOutlet.ifBlank { "0" }.toLongOrNull() ?: throw IllegalArgumentException("Biaya cabang tidak valid")
+                    if (ex % 1000 != 0L) throw IllegalArgumentException("Biaya cabang harus kelipatan 1000")
                     repo.saveSettings(
                         mapOf(
                             "monthly_base_price" to JsonPrimitive(m),
+                            "extra_outlet_monthly_price" to JsonPrimitive(ex),
                             "bank_details_text" to JsonPrimitive(bank.ifBlank { null }),
                             "payment_page_url" to JsonPrimitive(payUrl.ifBlank { null }),
                             "grace_days" to JsonPrimitive(grace.toIntOrNull() ?: 3),
