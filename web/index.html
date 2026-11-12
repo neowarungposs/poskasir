@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perpanjang Langganan · Kasir Warung</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#101418; --surface:#1A2027; --line:#262E37; --text:#F2F4F5; --muted:#A9B3BC; --accent:#C6F24E; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--ink); color:var(--text); font-family:Inter,system-ui,sans-serif; }
+  main { max-width:440px; margin:0 auto; padding:20px 20px 48px; display:flex; flex-direction:column; gap:22px; }
+  h1 { margin:0; font-family:'Space Grotesk',sans-serif; font-size:38px; line-height:1.05; letter-spacing:-1px; }
+  h1 span { color:var(--accent); }
+  .muted { color:var(--muted); font-size:14px; }
+  .label { color:var(--muted); font-size:13px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; }
+  header { display:flex; justify-content:space-between; align-items:center; font-family:'Space Grotesk',sans-serif; font-weight:700; }
+  .card { background:var(--surface); border-radius:22px; padding:20px; display:flex; flex-direction:column; gap:12px; }
+  .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:6px; background:var(--surface); padding:5px; border-radius:14px; }
+  .seg button { all:unset; cursor:pointer; text-align:center; padding:12px 0; border-radius:10px; font-weight:600; font-size:14px; color:#C9D1D8; }
+  .seg button[aria-pressed="true"] { background:var(--accent); color:var(--ink); font-weight:700; }
+  .price { font-family:'Space Grotesk',sans-serif; font-size:44px; font-weight:700; letter-spacing:-1px; }
+  .strike { color:var(--muted); text-decoration:line-through; font-size:15px; }
+  .chip { background:var(--accent); color:var(--ink); font-weight:800; font-size:13px; padding:5px 10px; border-radius:999px; }
+  .blocks { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; }
+  .blocks div { height:34px; border-radius:8px; background:#3A4450; }
+  .blocks div.free { background:none; border:2px solid var(--accent); color:var(--accent); font-size:10px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  table { width:100%; border-collapse:collapse; font-size:14px; background:var(--surface); border-radius:16px; overflow:hidden; }
+  th, td { padding:12px 14px; text-align:right; } th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-size:12.5px; font-weight:600; } tr + tr td { border-top:1px solid var(--line); }
+  tr.sel td { background:#232B33; font-weight:700; } tr.sel td:last-child { color:var(--accent); }
+  .count { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .count div { background:var(--surface); border-radius:14px; padding:12px 0; text-align:center; }
+  .count b { display:block; font-family:'Space Grotesk',sans-serif; font-size:28px; }
+  .transfer { background:var(--accent); color:var(--ink); border-radius:22px; padding:20px; display:flex; flex-direction:column; gap:12px; }
+  .transfer .amount { font-family:'Space Grotesk',sans-serif; font-size:38px; font-weight:700; letter-spacing:-1px; }
+  .transfer u { text-decoration-thickness:3px; text-underline-offset:5px; }
+  .btn { all:unset; cursor:pointer; text-align:center; font-weight:700; font-size:16px; padding:16px; border-radius:14px; background:var(--text); color:var(--ink); }
+  .btn[disabled] { opacity:.5; cursor:default; }
+  .icon-btn { all:unset; cursor:pointer; width:44px; height:44px; border-radius:12px; background:var(--ink); display:flex; align-items:center; justify-content:center; }
+  details { background:var(--surface); border-radius:16px; padding:16px; }
+  summary { cursor:pointer; font-weight:700; font-size:15px; list-style:none; display:flex; justify-content:space-between; }
+  .qris { width:220px; max-width:100%; margin:14px auto 8px; display:block; background:#fff; border-radius:12px; }
+  label { font-size:13px; color:var(--muted); font-weight:600; }
+  input[type=text], input[type=email], input[type=password] { width:100%; height:48px; background:var(--surface); border:1px solid #2E3740; color:var(--text); border-radius:12px; padding:0 14px; font:inherit; font-size:15px; }
+  input[type=file] { color:var(--muted); }
+  .msg { border-radius:12px; padding:12px 14px; font-size:14px; }
+  .ok { background:#1F3B1A; color:#D9F7B0; } .err { background:#3B1A1A; color:#F7C4C4; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .hidden { display:none !important; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header><span>Kasir Warung</span><span class="muted" id="code"></span></header>
+
+  <!-- Login -->
+  <section id="login" class="card hidden">
+    <h1 style="font-size:28px">Masuk untuk <span>perpanjang</span></h1>
+    <p class="muted">Pakai email & password pemilik usaha yang sama dengan aplikasi kasir.</p>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="email">
+    <label for="password">Password</label><input id="password" type="password" autocomplete="current-password">
+    <div id="loginMsg"></div>
+    <button class="btn" id="loginBtn">Masuk</button>
+  </section>
+
+  <!-- Payment -->
+  <div id="pay" class="hidden" style="display:flex;flex-direction:column;gap:22px">
+    <div>
+      <div class="muted" id="who"></div>
+      <h1>Makin lama,<br><span>makin hemat.</span></h1>
+    </div>
+
+    <div class="seg" id="seg" role="group" aria-label="Pilih durasi"></div>
+
+    <section class="card">
+      <div class="row"><b id="planName"></b><span class="chip hidden" id="disc"></span></div>
+      <div>
+        <div class="strike" id="normal"></div>
+        <div class="price" id="price"></div>
+        <div class="muted" id="perMonth"></div>
+      </div>
+      <div class="blocks" id="blocks" aria-hidden="true"></div>
+      <div id="saveText"></div>
+    </section>
+
+    <section>
+      <div class="label">Bandingkan</div>
+      <table><thead><tr><th>Durasi</th><th>Per bulan</th><th>Hemat</th></tr></thead><tbody id="compare"></tbody></table>
+    </section>
+
+    <section id="promo" class="hidden">
+      <div class="label" id="promoLabel"></div>
+      <div class="count"><div><b id="cd">00</b><span class="muted">hari</span></div><div><b id="ch">00</b><span class="muted">jam</span></div><div><b id="cm">00</b><span class="muted">menit</span></div></div>
+    </section>
+
+    <section class="transfer">
+      <div style="font-size:13px;font-weight:700;letter-spacing:.6px">TRANSFER PERSIS</div>
+      <div class="row">
+        <div class="amount" id="amount"></div>
+        <button class="icon-btn" id="copy" aria-label="Salin nominal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+        </button>
+      </div>
+      <div style="font-size:14px;line-height:1.5" id="codeText"></div>
+    </section>
+
+    <section>
+      <div class="label" style="margin-bottom:10px">Cara bayar</div>
+      <details open><summary>QRIS <span>−</span></summary>
+        <img id="qris" class="qris hidden" alt="QRIS pembayaran">
+        <p class="muted" style="text-align:center" id="qrisText">Scan, lalu ketik nominal persis.</p>
+      </details>
+      <details style="margin-top:10px"><summary>Transfer bank <span>+</span></summary>
+        <p id="bank" style="white-space:pre-line"></p>
+      </details>
+    </section>
+
+    <section style="display:flex;flex-direction:column;gap:10px">
+      <label for="sender">Nama pengirim (opsional)</label>
+      <input id="sender" type="text" placeholder="Contoh: Budi S">
+      <label for="proof">Bukti transfer (opsional)</label>
+      <input id="proof" type="file" accept="image/*">
+      <div id="payMsg"></div>
+      <button class="btn" id="submit">Saya sudah transfer</button>
+    </section>
+
+    <p class="muted" style="font-size:12.5px;line-height:1.6">Aktivasi maks. 1×24 jam hari kerja. Pembayaran terlambat tetap diterima. Salah nominal atau bayar dobel? Pilih refund atau jadikan saldo perpanjangan. <a href="#" id="logout">Keluar</a></p>
+  </div>
+</main>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const sb = createClient("https://hktdjfixchzrltlwoxnb.supabase.co", "sb_publishable_XkV2doCdnoAne_AZ-R3V1w_A1ZRGr7t");
+const $ = (id) => document.getElementById(id);
+const rp = (n) => "Rp" + Math.round(n).toLocaleString("id-ID");
+const tgl = (d) => new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(new Date(d));
+const msg = (el, text, ok) => { $(el).innerHTML = text ? `<div class="msg ${ok ? "ok" : "err"}"></div>` : ""; if (text) $(el).firstChild.textContent = text; };
+
+let ent, plans = [], monthly = 29000, selected, timer;
+
+async function start() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) { $("login").classList.remove("hidden"); return; }
+  const { data: e, error } = await sb.rpc("get_entitlement");
+  if (error) {
+    await sb.auth.signOut();
+    $("login").classList.remove("hidden");
+    msg("loginMsg", "Akun ini bukan pemilik usaha, atau usaha belum dibuat di aplikasi.", false);
+    return;
+  }
+  ent = e[0];
+  const [{ data: p }, { data: s }] = await Promise.all([
+    sb.from("plans").select("*").eq("is_active", true).order("months"),
+    sb.from("system_settings").select("*").single(),
+  ]);
+  plans = p ?? [];
+  monthly = s?.monthly_base_price ?? monthly;
+  $("bank").textContent = s?.bank_details_text || "Belum diatur.";
+  if (s?.global_qris_path) {
+    const { data: signed } = await sb.storage.from("system-assets").createSignedUrl(s.global_qris_path, 3600);
+    if (signed?.signedUrl) { $("qris").src = signed.signedUrl; $("qris").classList.remove("hidden"); }
+  } else $("qrisText").textContent = "QRIS belum tersedia. Gunakan transfer bank.";
+  $("code").textContent = ent.customer_code;
+  const statusText = { TRIAL: "trial", ACTIVE: "aktif", GRACE: "masa tenggang", EXPIRED: "berakhir" }[ent.status] ?? ent.status;
+  $("who").textContent = `Status ${statusText} · berakhir ${tgl(ent.access_until)}`;
+  selected = plans[plans.length - 1];
+  $("pay").classList.remove("hidden");
+  render();
+}
+
+function render() {
+  if (!selected) return;
+  $("seg").innerHTML = "";
+  plans.forEach((p) => {
+    const b = document.createElement("button");
+    b.textContent = `${p.months} bln`;
+    b.setAttribute("aria-pressed", p.id === selected.id);
+    b.onclick = () => { selected = p; render(); };
+    $("seg").appendChild(b);
+  });
+  const save = selected.normal_price - selected.price;
+  const free = Math.floor(save / monthly);
+  $("planName").textContent = `Paket ${selected.months} bulan`;
+  $("disc").textContent = `−${Number(selected.discount_pct)}%`;
+  $("disc").classList.toggle("hidden", !(save > 0));
+  $("normal").textContent = save > 0 ? rp(selected.normal_price) : "";
+  $("price").textContent = rp(selected.price);
+  $("perMonth").textContent = `cuma ≈ ${rp(selected.price / selected.months)} per bulan`;
+  $("blocks").innerHTML = "";
+  for (let i = 0; i < selected.months; i++) {
+    const d = document.createElement("div");
+    if (i >= selected.months - free) { d.className = "free"; d.textContent = "FREE"; }
+    $("blocks").appendChild(d);
+  }
+  $("saveText").innerHTML = "";
+  if (save > 0) {
+    $("saveText").append("Hemat ");
+    const b = document.createElement("strong"); b.style.color = "var(--accent)"; b.textContent = rp(save); $("saveText").append(b);
+    if (free >= 1) $("saveText").append(` — setara ${free} bulan gratis.`);
+  }
+  $("compare").innerHTML = "";
+  plans.forEach((p) => {
+    const tr = document.createElement("tr");
+    if (p.id === selected.id) tr.className = "sel";
+    const s = p.normal_price - p.price;
+    [`${p.months} bulan`, rp(p.price / p.months), s > 0 ? rp(s) : "—"].forEach((t) => { const td = document.createElement("td"); td.textContent = t; tr.appendChild(td); });
+    $("compare").appendChild(tr);
+  });
+  const amount = selected.price + ent.pay_code;
+  const str = rp(amount);
+  $("amount").innerHTML = ""; $("amount").append(str.slice(0, -3)); const u = document.createElement("u"); u.textContent = str.slice(-3); $("amount").append(u);
+  const code = String(ent.pay_code).padStart(3, "0");
+  const until = new Date(Math.max(Date.now(), new Date(ent.access_until).getTime())); until.setMonth(until.getMonth() + selected.months);
+  $("codeText").textContent = `3 digit terakhir ${code} = kode unik Anda. Sekali transfer, aktif sampai ${tgl(until)}.`;
+  $("qrisText").textContent = $("qris").classList.contains("hidden") ? $("qrisText").textContent : `Scan, lalu ketik nominal persis ${str}`;
+  $("copy").onclick = () => navigator.clipboard?.writeText(String(amount));
+  clearInterval(timer);
+  if (selected.promo_ends_at && new Date(selected.promo_ends_at) > new Date()) {
+    $("promo").classList.remove("hidden");
+    $("promoLabel").textContent = `Promo berakhir ${tgl(selected.promo_ends_at)}`;
+    const tick = () => {
+      const ms = Math.max(0, new Date(selected.promo_ends_at) - Date.now());
+      $("cd").textContent = String(Math.floor(ms / 864e5)).padStart(2, "0");
+      $("ch").textContent = String(Math.floor(ms / 36e5) % 24).padStart(2, "0");
+      $("cm").textContent = String(Math.floor(ms / 6e4) % 60).padStart(2, "0");
+    };
+    tick(); timer = setInterval(tick, 30000);
+  } else $("promo").classList.add("hidden");
+}
+
+async function compress(file) {
+  const img = await createImageBitmap(file);
+  const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return await new Promise((res) => c.toBlob(res, "image/webp", 0.8));
+}
+
+async function sha256(blob) {
+  const hash = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+$("loginBtn").onclick = async () => {
+  $("loginBtn").disabled = true; msg("loginMsg", "");
+  const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+  $("loginBtn").disabled = false;
+  if (error) return msg("loginMsg", "Email atau password salah.", false);
+  $("login").classList.add("hidden");
+  start();
+};
+
+$("submit").onclick = async () => {
+  $("submit").disabled = true; msg("payMsg", "");
+  try {
+    let path = null, hash = null;
+    const file = $("proof").files[0];
+    if (file) {
+      const blob = await compress(file);
+      hash = await sha256(blob);
+      path = `${ent.tenant_id}/${crypto.randomUUID()}.webp`;
+      const { error } = await sb.storage.from("payment-proofs").upload(path, blob, { contentType: "image/webp" });
+      if (error) throw error;
+    }
+    const { error } = await sb.rpc("submit_payment", {
+      p_plan_id: selected.id, p_sender_name: $("sender").value.trim() || null,
+      p_proof_path: path, p_proof_sha256: hash, p_transfer_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    msg("payMsg", "Terima kasih! Konfirmasi terkirim. Langganan aktif setelah dana kami terima (maks. 1×24 jam hari kerja).", true);
+  } catch (e) {
+    const m = String(e?.message ?? e);
+    msg("payMsg", m.includes("DUPLICATE_PROOF") ? "Bukti ini sudah pernah dikirim." : "Gagal mengirim: " + m, false);
+  }
+  $("submit").disabled = false;
+};
+
+$("logout").onclick = async (ev) => { ev.preventDefault(); await sb.auth.signOut(); location.reload(); };
+
+start();
+</script>
+</body>
+</html>

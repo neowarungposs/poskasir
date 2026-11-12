@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hapus Akun · Kasir Warung</title>
+<style>
+  body { margin:0; font-family:system-ui,sans-serif; background:#F5F6F2; color:#15201A; }
+  main { max-width:520px; margin:0 auto; padding:24px; display:flex; flex-direction:column; gap:14px; line-height:1.55; }
+  h1 { margin:0; font-size:26px; }
+  .card { background:#fff; border:1px solid #E3E6E0; border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:10px; }
+  label { font-size:13px; font-weight:600; color:#3D4842; }
+  input { height:46px; border:1px solid #C9CFC6; border-radius:10px; padding:0 12px; font:inherit; }
+  button { height:48px; border:0; border-radius:12px; font-weight:700; font-size:15px; cursor:pointer; background:#B3261E; color:#fff; }
+  button[disabled] { opacity:.5; }
+  .msg { padding:12px; border-radius:10px; }
+  .ok { background:#E3F3EA; color:#0A5C3B; } .err { background:#FDE7E7; color:#B3261E; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Hapus akun Kasir Warung</h1>
+  <p>Anda bisa menghapus akun langsung dari aplikasi: <b>Akun → Hapus Akun &amp; Semua Data Usaha</b>. Jika aplikasi sudah tidak terpasang, gunakan formulir ini.</p>
+  <div class="card">
+    <b>Yang dihapus permanen</b>
+    <ul style="margin:0;padding-left:18px">
+      <li>Akun pemilik: seluruh data usaha (outlet, produk, penjualan, akun kasir, foto, bukti bayar).</li>
+      <li>Akun kasir: hanya akun kasir tersebut.</li>
+    </ul>
+    <b>Yang disimpan</b>
+    <p style="margin:0">Catatan uang masuk pembayaran langganan disimpan tanpa data pribadi untuk keperluan pembukuan dan pajak. Kode bayar Anda tidak dipakai ulang.</p>
+  </div>
+  <div class="card">
+    <label for="email">Email</label><input id="email" type="email" autocomplete="email">
+    <label for="password">Password</label><input id="password" type="password" autocomplete="current-password">
+    <label for="confirm">Ketik HAPUS untuk konfirmasi</label><input id="confirm" type="text">
+    <div id="msg"></div>
+    <button id="go">Hapus akun permanen</button>
+  </div>
+  <p style="font-size:13px;color:#4A564F">Butuh bantuan? Hubungi kami lewat email [EMAIL DUKUNGAN].</p>
+</main>
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const sb = createClient("https://hktdjfixchzrltlwoxnb.supabase.co", "sb_publishable_XkV2doCdnoAne_AZ-R3V1w_A1ZRGr7t");
+const $ = (id) => document.getElementById(id);
+const show = (text, ok) => { $("msg").innerHTML = `<div class="msg ${ok ? "ok" : "err"}"></div>`; $("msg").firstChild.textContent = text; };
+$("go").onclick = async () => {
+  if ($("confirm").value !== "HAPUS") return show("Ketik HAPUS (huruf besar) untuk konfirmasi.", false);
+  $("go").disabled = true;
+  const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+  if (error) { $("go").disabled = false; return show("Email atau password salah.", false); }
+  const { error: fnErr } = await sb.functions.invoke("delete_account", { method: "POST" });
+  await sb.auth.signOut();
+  $("go").disabled = false;
+  if (fnErr) return show("Gagal menghapus akun. Coba lagi atau hubungi kami.", false);
+  show("Akun dan data Anda sudah dihapus permanen.", true);
+};
+</script>
+</body>
+</html>
