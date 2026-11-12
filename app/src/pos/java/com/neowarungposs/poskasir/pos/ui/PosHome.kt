@@ -57,6 +57,7 @@ fun PosHome(container: AppContainer, repo: PosRepository, claims: Claims) {
     var gate by remember { mutableStateOf(repo.gate()) }
 
     LaunchedEffect(Unit) {
+        repo.loadCaches()
         repo.loadEntitlement()
         runCatching { repo.syncAll() }
     }
@@ -92,8 +93,8 @@ fun PosHome(container: AppContainer, repo: PosRepository, claims: Claims) {
             when (tabs.getOrNull(selected)?.label) {
                 "Kasir" -> KasirScreen(repo, gate, isAdmin)
                 "Kelola" -> KelolaScreen(repo)
-                "Riwayat" -> RiwayatScreen(repo)
-                "Langganan" -> LanggananScreen(container, repo)
+                "Riwayat" -> RiwayatScreen(repo, isAdmin)
+                "Langganan" -> LanggananScreen(container, repo, isAdmin)
                 "Akun" -> AkunScreen(container, repo, claims)
             }
         }

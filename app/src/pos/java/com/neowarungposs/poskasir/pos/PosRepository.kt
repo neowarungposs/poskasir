@@ -8,6 +8,11 @@ import com.neowarungposs.poskasir.AppContainer
 import com.neowarungposs.poskasir.core.AppJson
 import com.neowarungposs.poskasir.core.Entitlement
 import com.neowarungposs.poskasir.core.Outlet
+import com.neowarungposs.poskasir.core.ProductOutletRow
+import com.neowarungposs.poskasir.core.TenantInfo
+import com.neowarungposs.poskasir.ui.AppTheme
+import com.neowarungposs.poskasir.ui.ThemeState
+import kotlinx.serialization.builtins.ListSerializer
 import com.neowarungposs.poskasir.core.ProductDto
 import com.neowarungposs.poskasir.core.parseInstant
 import com.neowarungposs.poskasir.core.str
@@ -64,13 +69,49 @@ data class VoidRow(
 )
 
 @Serializable
+data class ServerOrder(
+    val id: String,
+    val invoiceNo: String,
+    val createdAt: String,
+    val total: Long,
+    val subtotal: Long? = null,
+    val discount: Long = 0,
+    val promoSummary: String? = null,
+    val cashReceived: Long? = null,
+    val paymentMethod: String,
+    val status: String,
+    val outletId: String,
+    val orderType: String = "DINE_IN",
+    val tableNo: String? = null,
+) {
+    fun toEntity() = OrderEntity(
+        id, outletId, invoiceNo, paymentMethod, total, cashReceived,
+        parseInstant(createdAt)?.toEpochMilli() ?: 0L, synced = true, status = status, orderType = orderType,
+        tableNo = tableNo, subtotal = subtotal ?: total, discount = discount, promoSummary = promoSummary,
+    )
+}
+
+@Serializable
+data class ServerItem(
+    val id: String,
+    val orderId: String,
+    val productId: String? = null,
+    val productName: String,
+    val unitPrice: Long,
+    val qty: Double,
+    val subtotal: Long,
+    val unitCost: Long = 0,
+    val note: String? = null,
+)
+
+@Serializable
 data class SaleRow(val outletId: String, val total: Long, val status: String)
 
 enum class GateState { OK, WARNING, GRACE, EXPIRED, NEED_ONLINE, UNKNOWN }
 
 data class Gate(val state: GateState, val daysLeft: Long, val canSell: Boolean)
 
-data class CartLine(val product: ProductEntity, val qty: Int)
+data class CartLine(val product: ProductEntity, val qty: Int, val unitPrice: Long = product.price, val note: String? = null)
 
 object PosModule {
     @Volatile
@@ -88,6 +129,31 @@ class PosRepository(val container: AppContainer) {
 
     private val _ent = MutableStateFlow<EntState?>(null)
     val ent: StateFlow<EntState?> = _ent
+
+    private val _outlet = MutableStateFlow<Outlet?>(null)
+    /** Outlet this device sells for (cashier: own outlet; owner: chosen outlet). */
+    val outlet: StateFlow<Outlet?> = _outlet
+    private val _promos = MutableStateFlow<List<PromoDto>>(emptyList())
+    val promos: StateFlow<List<PromoDto>> = _promos
+    private val _productOutlets = MutableStateFlow<List<ProductOutletRow>>(emptyList())
+    val productOutlets: StateFlow<List<ProductOutletRow>> = _productOutlets
+    private val _tenant = MutableStateFlow<TenantInfo?>(null)
+    val tenant: StateFlow<TenantInfo?> = _tenant
+
+    /** Loads cached tenant data so the POS works offline right after start. */
+    suspend fun loadCaches() {
+        if (_outlet.value == null) _outlet.value = currentOutlet()
+        if (_promos.value.isEmpty()) _promos.value = dao.kv("promos")?.let { runCatching { AppJson.decodeFromString<List<PromoDto>>(it) }.getOrNull() } ?: emptyList()
+        if (_productOutlets.value.isEmpty()) _productOutlets.value = dao.kv("product_outlets")?.let { runCatching { AppJson.decodeFromString<List<ProductOutletRow>>(it) }.getOrNull() } ?: emptyList()
+        if (_tenant.value == null) _tenant.value = dao.kv("tenant")?.let { runCatching { AppJson.decodeFromString<TenantInfo>(it) }.getOrNull() }
+    }
+
+    /** Effective price / availability of a product in the current outlet (D23). */
+    fun effective(p: ProductEntity, outletId: String?): Pair<Boolean, Long> {
+        val row = _productOutlets.value.firstOrNull { it.productId == p.id && it.outletId == outletId }
+        val outletOk = p.outletId == null || p.outletId == outletId
+        return ((row?.isAvailable ?: true) && outletOk && p.isActive) to (row?.priceOverride ?: p.price)
+    }
 
     private val deviceId: String by lazy {
         Settings.Secure.getString(container.appContext.contentResolver, Settings.Secure.ANDROID_ID) ?: "device"
@@ -159,16 +225,51 @@ class PosRepository(val container: AppContainer) {
 
     suspend fun currentOutlet(): Outlet? = dao.kv("outlet")?.let { runCatching { AppJson.decodeFromString<Outlet>(it) }.getOrNull() }
 
+    suspend fun cachedOutlets(): List<Outlet> =
+        dao.kv("outlets_all")?.let { runCatching { AppJson.decodeFromString<List<Outlet>>(it) }.getOrNull() } ?: listOfNotNull(currentOutlet())
+
     suspend fun refreshTenantInfo() {
         val claims = client.session.claims() ?: return
-        val tenantRaw = client.get("tenants?select=business_name&limit=1")
-        val name = (AppJson.parseToJsonElement(tenantRaw) as JsonArray).firstOrNull()?.str("business_name")
-        if (name != null) dao.putKv(KvEntity("business_name", name))
+        val info = AppJson.decodeFromString<List<TenantInfo>>(
+            client.get("tenants?select=business_name,phone_wa,wa_opt_in,email,logo_path,login_bg_path,theme&limit=1")
+        ).firstOrNull()
+        if (info != null) {
+            dao.putKv(KvEntity("business_name", info.businessName))
+            dao.putKv(KvEntity("tenant", AppJson.encodeToString(TenantInfo.serializer(), info)))
+            _tenant.value = info
+            runCatching { container.branding.sync(client, info.logoPath, info.loginBgPath) }
+            AppTheme.entries.firstOrNull { it.name == info.theme }?.let { ThemeState.set(container.appContext, it) }
+        }
 
-        val outletQuery = if (claims.appRole == "BRANCH_CASHIER" && claims.outletId != null)
-            "outlets?select=*&id=eq.${claims.outletId}" else "outlets?select=*&is_main=eq.true"
-        val outlet = AppJson.decodeFromString<List<Outlet>>(client.get(outletQuery)).firstOrNull()
-        if (outlet != null) dao.putKv(KvEntity("outlet", AppJson.encodeToString(Outlet.serializer(), outlet)))
+        val outlets = if (claims.appRole == "BRANCH_CASHIER" && claims.outletId != null)
+            AppJson.decodeFromString<List<Outlet>>(client.get("outlets?select=*&id=eq.${claims.outletId}"))
+        else AppJson.decodeFromString<List<Outlet>>(client.get("outlets?select=*&deleted_at=is.null&order=created_at.asc"))
+        dao.putKv(KvEntity("outlets_all", AppJson.encodeToString(ListSerializer(Outlet.serializer()), outlets)))
+        val activeId = dao.kv("active_outlet_id")
+        val chosen = outlets.firstOrNull { it.id == activeId } ?: outlets.firstOrNull { it.isMain } ?: outlets.firstOrNull()
+        if (chosen != null) {
+            dao.putKv(KvEntity("outlet", AppJson.encodeToString(Outlet.serializer(), chosen)))
+            _outlet.value = chosen
+        }
+    }
+
+    /** Owner only: switch the outlet this device sells for. */
+    suspend fun setActiveOutlet(o: Outlet) {
+        dao.putKv(KvEntity("active_outlet_id", o.id))
+        dao.putKv(KvEntity("outlet", AppJson.encodeToString(Outlet.serializer(), o)))
+        _outlet.value = o
+    }
+
+    suspend fun pullPromos() {
+        val list = AppJson.decodeFromString<List<PromoDto>>(client.get("promotions?select=*&deleted_at=is.null&order=created_at.desc"))
+        dao.putKv(KvEntity("promos", AppJson.encodeToString(ListSerializer(PromoDto.serializer()), list)))
+        _promos.value = list
+    }
+
+    suspend fun pullProductOutlets() {
+        val list = AppJson.decodeFromString<List<ProductOutletRow>>(client.get("product_outlets?select=product_id,outlet_id,is_available,price_override&limit=10000"))
+        dao.putKv(KvEntity("product_outlets", AppJson.encodeToString(ListSerializer(ProductOutletRow.serializer()), list)))
+        _productOutlets.value = list
     }
 
     // ---------------------------------------------------------------- products
@@ -179,7 +280,7 @@ class PosRepository(val container: AppContainer) {
         val list = AppJson.decodeFromString<List<ProductDto>>(raw)
         if (list.isEmpty()) return
         dao.upsertProducts(list.map {
-            ProductEntity(it.id, it.outletId, it.name, it.category, it.price, it.isActive, it.deletedAt != null, it.updatedAt, it.imagePath)
+            ProductEntity(it.id, it.outletId, it.name, it.category, it.price, it.isActive, it.deletedAt != null, it.updatedAt, it.imagePath, it.costPrice)
         })
         list.last().updatedAt?.let { dao.putKv(KvEntity("products_since", it)) }
         list.filter { it.imagePath != null && it.deletedAt == null }.forEach { p ->
@@ -204,7 +305,10 @@ class PosRepository(val container: AppContainer) {
         dao.putKv(KvEntity("img_$productId", version))
     }
 
-    suspend fun saveProduct(id: String?, name: String, category: String?, price: Long, active: Boolean, photo: ByteArray? = null) {
+    suspend fun saveProduct(
+        id: String?, name: String, category: String?, price: Long, active: Boolean, photo: ByteArray? = null,
+        costPrice: Long = 0, perOutlet: List<ProductOutletRow> = emptyList(),
+    ) {
         val productId = id ?: uuidV7()
         val tenantId = client.session.claims()?.tenantId
         val imagePath = if (photo != null && tenantId != null) {
@@ -214,6 +318,7 @@ class PosRepository(val container: AppContainer) {
         } else null
         val body = buildJsonObject {
             if (imagePath != null) put("image_path", imagePath)
+            put("cost_price", costPrice)
             put("name", name.trim())
             put("category", category?.trim()?.ifEmpty { null })
             put("price", price)
@@ -229,6 +334,18 @@ class PosRepository(val container: AppContainer) {
         } else {
             client.patch("products?id=eq.$id", body.toString())
         }
+        if (perOutlet.isNotEmpty()) {
+            val rows = buildJsonArray {
+                perOutlet.forEach { r ->
+                    add(buildJsonObject {
+                        put("product_id", productId); put("outlet_id", r.outletId); put("tenant_id", tenantId)
+                        put("is_available", r.isAvailable); put("price_override", r.priceOverride)
+                    })
+                }
+            }
+            client.post("product_outlets?on_conflict=product_id,outlet_id", rows.toString(), prefer = "resolution=merge-duplicates,return=minimal")
+            pullProductOutlets()
+        }
         pullProducts()
     }
 
@@ -238,23 +355,34 @@ class PosRepository(val container: AppContainer) {
     }
 
     // ---------------------------------------------------------------- orders
-    suspend fun checkout(lines: List<CartLine>, method: String, cashReceived: Long?): Pair<OrderEntity, List<OrderItemEntity>> {
+    suspend fun checkout(
+        lines: List<CartLine>, method: String, cashReceived: Long?,
+        applied: List<AppliedPromo> = emptyList(), orderType: String = "DINE_IN", tableNo: String? = null,
+    ): Pair<OrderEntity, List<OrderItemEntity>> {
         val outlet = currentOutlet() ?: throw IllegalStateException("Data outlet belum tersedia. Hubungkan internet sekali.")
         val s = _ent.value
         val createdAt = s?.let { trustedNow(it) } ?: System.currentTimeMillis()
         val orderId = uuidV7()
         val items = lines.map {
-            OrderItemEntity(uuidV7(), orderId, it.product.id, it.product.name, it.product.price, it.qty.toDouble(), it.product.price * it.qty)
+            OrderItemEntity(uuidV7(), orderId, it.product.id, it.product.name, it.unitPrice, it.qty.toDouble(),
+                it.unitPrice * it.qty, unitCost = it.product.costPrice, note = it.note)
         }
+        val subtotal = items.sumOf { it.subtotal }
+        val discount = applied.sumOf { it.discount }.coerceAtMost(subtotal)
         val order = OrderEntity(
             id = orderId,
             outletId = outlet.id,
             invoiceNo = nextInvoiceNo(outlet.code, createdAt),
             paymentMethod = method,
-            total = items.sumOf { it.subtotal },
+            total = subtotal - discount,
             cashReceived = cashReceived,
             createdAtMs = createdAt,
             synced = false,
+            orderType = orderType,
+            tableNo = tableNo?.ifBlank { null },
+            subtotal = subtotal,
+            discount = discount,
+            promoSummary = applied.joinToString("; ") { "${it.name} -${it.discount}" }.ifEmpty { null },
         )
         dao.saveOrder(order, items)
         persistTrustedTime()
@@ -287,6 +415,11 @@ class PosRepository(val container: AppContainer) {
                         put("payment_method", o.paymentMethod)
                         put("total", o.total)
                         put("created_at", Instant.ofEpochMilli(o.createdAtMs).toString())
+                        put("order_type", o.orderType)
+                        put("table_no", o.tableNo)
+                        put("subtotal", if (o.subtotal > 0) o.subtotal else o.total)
+                        put("discount", o.discount)
+                        put("promo_summary", o.promoSummary)
                         put("items", buildJsonArray {
                             items[o.id].orEmpty().forEach { i ->
                                 add(buildJsonObject {
@@ -296,6 +429,8 @@ class PosRepository(val container: AppContainer) {
                                     put("unit_price", i.unitPrice)
                                     put("qty", i.qty)
                                     put("subtotal", i.subtotal)
+                                    put("unit_cost", i.unitCost)
+                                    put("note", i.note)
                                 })
                             }
                         })
@@ -315,6 +450,8 @@ class PosRepository(val container: AppContainer) {
         pushOrders()
         refreshTenantInfo()
         pullProducts()
+        runCatching { pullProductOutlets() }
+        runCatching { pullPromos() }
         pullVoids()
         refreshEntitlement()
     }
@@ -380,6 +517,67 @@ class PosRepository(val container: AppContainer) {
             URLEncoder.encode(Instant.ofEpochMilli(fromMs).toString(), "UTF-8") + "&limit=20000")
     )
 
+    // ---------------------------------------------------------------- promotions (TENANT_ADMIN)
+    suspend fun savePromo(id: String?, body: JsonObject) {
+        if (id == null) client.post("promotions", buildJsonObject {
+            body.forEach { (k, v) -> put(k, v) }
+            put("tenant_id", client.session.claims()?.tenantId)
+        }.toString())
+        else client.patch("promotions?id=eq.$id", body.toString())
+        pullPromos()
+    }
+
+    suspend fun deletePromo(id: String) {
+        client.patch("promotions?id=eq.$id", buildJsonObject { put("deleted_at", Instant.now().toString()) }.toString())
+        pullPromos()
+    }
+
+    // ---------------------------------------------------------------- receipt, branding, contact
+    suspend fun saveReceiptSettings(outletId: String, header: String?, footer: String?, phone: String?, showLogo: Boolean) {
+        client.patch("outlets?id=eq.$outletId", buildJsonObject {
+            put("receipt_header", header?.trim()?.ifEmpty { null })
+            put("receipt_footer", footer?.trim()?.ifEmpty { null })
+            put("phone", phone?.trim()?.ifEmpty { null })
+            put("receipt_show_logo", showLogo)
+        }.toString())
+        refreshTenantInfo()
+    }
+
+    suspend fun updateBranding(logo: ByteArray?, background: ByteArray?, theme: AppTheme?, clearLogo: Boolean = false, clearBg: Boolean = false) {
+        val tenantId = client.session.claims()?.tenantId ?: return
+        val ts = System.currentTimeMillis()
+        val logoPath = logo?.let { "$tenantId/branding/logo-$ts.webp".also { p -> client.upload("outlet-assets", p, it, "image/webp") } }
+        val bgPath = background?.let { "$tenantId/branding/login-$ts.webp".also { p -> client.upload("outlet-assets", p, it, "image/webp") } }
+        client.rpc("update_branding", buildJsonObject {
+            put("p_logo_path", logoPath); put("p_login_bg_path", bgPath); put("p_theme", theme?.name)
+            put("p_clear_logo", clearLogo); put("p_clear_bg", clearBg)
+        })
+        refreshTenantInfo()
+    }
+
+    suspend fun updateContact(phone: String, optIn: Boolean) {
+        client.rpc("update_contact", buildJsonObject { put("p_phone_wa", phone); put("p_wa_opt_in", optIn) })
+        refreshTenantInfo()
+    }
+
+    // ---------------------------------------------------------------- reports & server history (TENANT_ADMIN)
+    suspend fun report(fromMs: Long, toMs: Long, outletId: String?): JsonObject =
+        AppJson.parseToJsonElement(client.rpc("report_summary", buildJsonObject {
+            put("p_from", Instant.ofEpochMilli(fromMs).toString())
+            put("p_to", Instant.ofEpochMilli(toMs).toString())
+            put("p_outlet", outletId)
+        })) as JsonObject
+
+    suspend fun serverOrders(outletId: String?, fromMs: Long): List<ServerOrder> {
+        val outletFilter = outletId?.let { "&outlet_id=eq.$it" } ?: ""
+        return AppJson.decodeFromString(client.get("sales_orders?select=id,invoice_no,created_at,total,subtotal,discount,promo_summary,payment_method,status,outlet_id,order_type,table_no" +
+            "&created_at=gte." + URLEncoder.encode(Instant.ofEpochMilli(fromMs).toString(), "UTF-8") + outletFilter + "&order=created_at.desc&limit=500"))
+    }
+
+    suspend fun serverOrderItems(orderId: String): List<OrderItemEntity> =
+        AppJson.decodeFromString<List<ServerItem>>(client.get("sales_order_items?select=id,order_id,product_id,product_name,unit_price,qty,subtotal,unit_cost,note&order_id=eq.$orderId"))
+            .map { OrderItemEntity(it.id, it.orderId, it.productId, it.productName, it.unitPrice, it.qty, it.subtotal, it.unitCost, it.note) }
+
     // ---------------------------------------------------------------- printer
     suspend fun printerAddress(): String? = dao.kv("printer_address")
     suspend fun printerName(): String? = dao.kv("printer_name")
@@ -391,12 +589,14 @@ class PosRepository(val container: AppContainer) {
 
     suspend fun printReceipt(order: OrderEntity, items: List<OrderItemEntity>) {
         val address = printerAddress() ?: throw IllegalStateException("Pilih printer dulu di Akun > Printer.")
-        val data = ReceiptBuilder.build(businessName(), currentOutlet()?.name ?: "", order, items, paperWidth())
+        val data = ReceiptBuilder.build(businessName(), currentOutlet(), order, items, paperWidth(), container.branding.logo())
         BluetoothPrinter.print(container.appContext, address, data)
     }
 
     suspend fun clearLocal() {
         dao.clearAll()
+        // Branding (logo/login background) stays so the login screen keeps the shop look (D21).
+        _outlet.value = null; _promos.value = emptyList(); _productOutlets.value = emptyList(); _tenant.value = null
         container.secureStore.put(ENT_KEY, null)
         _ent.value = null
     }

@@ -51,8 +51,6 @@ import com.neowarungposs.poskasir.core.friendlyError
 import com.neowarungposs.poskasir.core.rupiah
 import com.neowarungposs.poskasir.pos.CashierRow
 import com.neowarungposs.poskasir.pos.PosRepository
-import com.neowarungposs.poskasir.pos.PosRepository.Companion.DAY_MS
-import com.neowarungposs.poskasir.pos.SaleRow
 import com.neowarungposs.poskasir.pos.VoidRow
 import com.neowarungposs.poskasir.ui.ConfirmDialog
 import com.neowarungposs.poskasir.ui.ErrorText
@@ -64,18 +62,19 @@ import kotlinx.serialization.json.put
 /** TENANT_ADMIN tools: products, branches, cashiers, void approvals, branch report. */
 @Composable
 fun KelolaScreen(repo: PosRepository) {
-    val tabs = listOf("Produk", "Cabang", "Kasir", "Void", "Laporan")
+    val tabs = listOf("Laporan", "Produk", "Promo", "Cabang", "Kasir", "Void")
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
             tabs.forEachIndexed { i, t -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) }) }
         }
         when (tab) {
-            0 -> ProdukScreen(repo)
-            1 -> OutletsTab(repo)
-            2 -> CashiersTab(repo)
-            3 -> VoidsTab(repo)
-            else -> ReportTab(repo)
+            0 -> LaporanScreen(repo)
+            1 -> ProdukScreen(repo)
+            2 -> PromoScreen(repo)
+            3 -> OutletsTab(repo)
+            4 -> CashiersTab(repo)
+            else -> VoidsTab(repo)
         }
     }
 }
@@ -339,50 +338,3 @@ private fun VoidsTab(repo: PosRepository) {
     }
 }
 
-// ------------------------------------------------------------------ branch report
-@Composable
-private fun ReportTab(repo: PosRepository) {
-    val ranges = listOf("Hari ini" to 0, "7 hari" to 7, "30 hari" to 30)
-    var range by remember { mutableIntStateOf(0) }
-    var sales by remember { mutableStateOf<List<SaleRow>>(emptyList()) }
-    var outlets by remember { mutableStateOf<List<Outlet>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(range) {
-        try {
-            val days = ranges[range].second
-            val from = repo.todayStartMs() - days * DAY_MS
-            outlets = repo.outlets()
-            sales = repo.salesSince(from)
-            error = null
-        } catch (e: Exception) { error = friendlyError(e) }
-    }
-    val paid = sales.filter { it.status == "PAID" }
-
-    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ranges.forEachIndexed { i, (label, _) -> FilterChip(selected = range == i, onClick = { range = i }, label = { Text(label) }) }
-        }
-        ErrorText(error)
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Total semua cabang", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(rupiah(paid.sumOf { it.total }), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
-                Text("${paid.size} transaksi · ${sales.size - paid.size} void")
-            }
-        }
-        outlets.forEach { o ->
-            val rows = paid.filter { it.outletId == o.id }
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(o.name, fontWeight = FontWeight.Bold)
-                        Text("${rows.size} transaksi", fontSize = 13.sp)
-                    }
-                    Text(rupiah(rows.sumOf { it.total }), fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-        Text("Hanya transaksi yang sudah tersinkron dari HP kasir.", fontSize = 12.sp)
-    }
-}

@@ -12,7 +12,11 @@ import com.neowarungposs.poskasir.core.rupiah
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import com.neowarungposs.poskasir.core.Outlet
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.UUID
 
 data class PairedPrinter(val name: String, val address: String)
@@ -74,10 +78,11 @@ object ReceiptBuilder {
 
     fun build(
         business: String,
-        outlet: String,
+        outlet: Outlet?,
         order: OrderEntity,
         items: List<OrderItemEntity>,
         width: Int,
+        logo: File? = null,
     ): ByteArray {
         val out = ByteArrayOutputStream()
         fun raw(b: ByteArray) = out.write(b)
@@ -88,29 +93,69 @@ object ReceiptBuilder {
             if (l.length + r.length + 1 <= width) line(l + " ".repeat(width - l.length - r.length) + r)
             else { line(l.take(width)); line(" ".repeat(maxOf(0, width - r.length)) + r) }
         }
+        fun wrap(text: String) = text.lines().forEach { l -> l.chunked(width).ifEmpty { listOf("") }.forEach { line(it) } }
         val dash = "-".repeat(width)
 
         raw(INIT); raw(ALIGN_CENTER)
+        if (outlet?.receiptShowLogo == true && logo != null && logo.exists()) {
+            runCatching { raw(logoRaster(logo, if (width >= 48) 576 else 384)) }
+        }
         raw(BOLD_ON); raw(DOUBLE_ON); line(business.take(width / 2)); raw(DOUBLE_OFF); raw(BOLD_OFF)
-        if (outlet.isNotBlank()) line(outlet.take(width))
+        outlet?.name?.takeIf { it.isNotBlank() }?.let { line(it.take(width)) }
+        outlet?.address?.takeIf { it.isNotBlank() }?.let { wrap(it) }
+        outlet?.phone?.takeIf { it.isNotBlank() }?.let { line("Telp $it".take(width)) }
+        outlet?.receiptHeader?.takeIf { it.isNotBlank() }?.let { wrap(it) }
         raw(ALIGN_LEFT)
         line(dash)
         line(order.invoiceNo)
         line(formatDateTime(order.createdAtMs))
+        line(if (order.orderType == "TAKEAWAY") "Bungkus" else "Makan di tempat" + (order.tableNo?.let { " - Meja $it" } ?: ""))
         if (order.status == "VOIDED") { raw(BOLD_ON); line("*** VOID ***"); raw(BOLD_OFF) }
         line(dash)
         items.forEach { i ->
             line(i.productName.take(width))
             pair("  ${qty(i.qty)} x ${rupiah(i.unitPrice)}", rupiah(i.subtotal))
+            i.note?.takeIf { it.isNotBlank() }?.let { line("  * $it".take(width)) }
         }
         line(dash)
+        if (order.discount > 0) {
+            pair("Subtotal", rupiah(order.subtotal))
+            order.promoSummary?.split("; ")?.forEach { p ->
+                val name = p.substringBeforeLast(" -")
+                val amt = p.substringAfterLast(" -").toLongOrNull()
+                pair(name.take(width - 12), amt?.let { "-" + rupiah(it) } ?: "")
+            } ?: pair("Diskon", "-" + rupiah(order.discount))
+        }
         raw(BOLD_ON); pair("TOTAL", rupiah(order.total)); raw(BOLD_OFF)
         pair(method(order.paymentMethod), order.cashReceived?.let { rupiah(it) } ?: "")
         order.cashReceived?.let { pair("Kembali", rupiah(it - order.total)) }
         line(dash)
-        raw(ALIGN_CENTER); line("Terima kasih!")
+        raw(ALIGN_CENTER)
+        val footer = outlet?.receiptFooter?.takeIf { it.isNotBlank() } ?: "Terima kasih!"
+        wrap(footer)
         line(); line(); line()
         raw(CUT)
+        return out.toByteArray()
+    }
+
+    /** ESC/POS raster image (GS v 0), dithered to 1-bit, max width in dots. */
+    private fun logoRaster(file: File, maxDots: Int): ByteArray {
+        val src = BitmapFactory.decodeFile(file.absolutePath) ?: return ByteArray(0)
+        val targetW = minOf(maxDots / 2, src.width).coerceAtLeast(8) / 8 * 8
+        val targetH = (src.height * targetW.toFloat() / src.width).toInt().coerceIn(1, 240)
+        val bmp = Bitmap.createScaledBitmap(src, targetW, targetH, true)
+        val bytesPerRow = targetW / 8
+        val data = ByteArray(bytesPerRow * targetH)
+        for (y in 0 until targetH) for (x in 0 until targetW) {
+            val c = bmp.getPixel(x, y)
+            val a = (c ushr 24) and 0xff
+            val lum = (((c shr 16) and 0xff) * 299 + ((c shr 8) and 0xff) * 587 + (c and 0xff) * 114) / 1000
+            if (a > 128 && lum < 140) data[y * bytesPerRow + x / 8] = (data[y * bytesPerRow + x / 8].toInt() or (0x80 ushr (x % 8))).toByte()
+        }
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0x1D, 0x76, 0x30, 0, (bytesPerRow and 0xff).toByte(), (bytesPerRow shr 8).toByte(), (targetH and 0xff).toByte(), (targetH shr 8).toByte()))
+        out.write(data)
+        out.write(0x0A)
         return out.toByteArray()
     }
 

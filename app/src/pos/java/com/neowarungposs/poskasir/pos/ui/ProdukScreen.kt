@@ -43,7 +43,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
 import com.neowarungposs.poskasir.core.ImageCompressor
+import com.neowarungposs.poskasir.core.Outlet
+import com.neowarungposs.poskasir.core.ProductOutletRow
 import com.neowarungposs.poskasir.core.friendlyError
 import com.neowarungposs.poskasir.core.rupiah
 import com.neowarungposs.poskasir.pos.PosRepository
@@ -77,7 +83,13 @@ fun ProdukScreen(repo: PosRepository) {
                                 fontSize = 12.sp,
                             )
                         }
-                        Text(rupiah(p.price), fontWeight = FontWeight.Bold)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(rupiah(p.price), fontWeight = FontWeight.Bold)
+                            if (p.costPrice > 0 && p.price > 0) Text(
+                                "Margin ${(p.price - p.costPrice) * 100 / p.price}%", fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         IconButton(onClick = { deleting = p }) { Icon(Icons.Filled.Delete, "Hapus") }
                     }
                 }
@@ -96,10 +108,11 @@ fun ProdukScreen(repo: PosRepository) {
 
     if (creating || editing != null) {
         ProductDialog(
+            repo = repo,
             initial = editing,
             onDismiss = { creating = false; editing = null },
-            onSave = { name, cat, price, active, photo ->
-                repo.saveProduct(editing?.id, name, cat, price, active, photo)
+            onSave = { name, cat, price, active, photo, cost, perOutlet ->
+                repo.saveProduct(editing?.id, name, cat, price, active, photo, cost, perOutlet)
                 creating = false; editing = null
             },
         )
@@ -122,10 +135,24 @@ fun ProdukScreen(repo: PosRepository) {
 
 @Composable
 private fun ProductDialog(
+    repo: PosRepository,
     initial: ProductEntity?,
     onDismiss: () -> Unit,
-    onSave: suspend (String, String?, Long, Boolean, ByteArray?) -> Unit,
+    onSave: suspend (String, String?, Long, Boolean, ByteArray?, Long, List<ProductOutletRow>) -> Unit,
 ) {
+    var outlets by remember { mutableStateOf<List<Outlet>>(emptyList()) }
+    LaunchedEffect(Unit) { outlets = repo.cachedOutlets() }
+    val existing = repo.productOutlets.collectAsState().value.filter { it.productId == initial?.id }
+    val availability = remember { mutableStateMapOf<String, Boolean>() }
+    val overrides = remember { mutableStateMapOf<String, String>() }
+    LaunchedEffect(outlets) {
+        outlets.forEach { o ->
+            val row = existing.firstOrNull { it.outletId == o.id }
+            if (o.id !in availability) availability[o.id] = row?.isAvailable ?: true
+            if (o.id !in overrides) overrides[o.id] = row?.priceOverride?.toString() ?: ""
+        }
+    }
+    var cost by remember { mutableStateOf(initial?.costPrice?.takeIf { it > 0 }?.toString() ?: "") }
     var photo by remember { mutableStateOf<ByteArray?>(null) }
     var compressing by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -149,11 +176,19 @@ private fun ProductDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(if (initial == null) "Tambah produk" else "Ubah produk") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Nama") }, singleLine = true)
                 OutlinedTextField(category, { category = it }, label = { Text("Kategori (opsional)") }, singleLine = true)
                 OutlinedTextField(
                     price, { price = it.filter(Char::isDigit) }, label = { Text("Harga (Rp)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                OutlinedTextField(
+                    cost, { cost = it.filter(Char::isDigit) }, label = { Text("Modal / HPP per item (Rp)") }, singleLine = true,
+                    supportingText = {
+                        val pr = price.toLongOrNull(); val c = cost.toLongOrNull()
+                        Text(if (pr != null && c != null && pr > 0) "Untung ${rupiah(pr - c)} · margin ${(pr - c) * 100 / pr}%" else "Untuk laporan laba & margin")
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -174,6 +209,22 @@ private fun ProductDialog(
                     Text("Aktif dijual", modifier = Modifier.weight(1f))
                     Switch(checked = active, onCheckedChange = { active = it })
                 }
+                if (outlets.size > 1) {
+                    Text("Per cabang", fontWeight = FontWeight.Bold)
+                    Text("Matikan jika menu tidak dijual di cabang itu. Kosongkan harga khusus untuk memakai harga utama.", fontSize = 12.sp)
+                    outlets.forEach { o ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(o.name, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                            Switch(checked = availability[o.id] ?: true, onCheckedChange = { availability[o.id] = it })
+                        }
+                        if (availability[o.id] != false) OutlinedTextField(
+                            overrides[o.id] ?: "", { overrides[o.id] = it.filter(Char::isDigit) },
+                            label = { Text("Harga khusus ${o.name}") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
                 ErrorText(error)
             }
         },
@@ -184,7 +235,10 @@ private fun ProductDialog(
                     busy = true
                     scope.launch {
                         try {
-                            onSave(name, category, price.toLong(), active, photo)
+                            val rows = if (outlets.size > 1) outlets.map { o ->
+                                ProductOutletRow(initial?.id ?: "", o.id, availability[o.id] ?: true, overrides[o.id]?.toLongOrNull())
+                            } else emptyList()
+                            onSave(name, category, price.toLong(), active, photo, cost.toLongOrNull() ?: 0, rows)
                         } catch (e: Exception) {
                             error = friendlyError(e); busy = false
                         }

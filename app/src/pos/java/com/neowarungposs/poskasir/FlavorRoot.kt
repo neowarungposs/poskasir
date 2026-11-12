@@ -46,6 +46,7 @@ fun FlavorRoot(container: AppContainer, activity: FragmentActivity) {
             subtitle = "Masuk untuk mulai berjualan. Data tersimpan aman dan tetap jalan saat offline.",
             allowSignUp = true,
             onSignedIn = {},
+            branding = container.branding,
         )
         return
     }

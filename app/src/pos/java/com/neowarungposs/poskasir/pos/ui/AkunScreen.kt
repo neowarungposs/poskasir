@@ -154,6 +154,11 @@ fun AkunScreen(container: AppContainer, repo: PosRepository, claims: Claims) {
             }
         }
 
+        if (isAdmin) {
+            AppearanceCard(repo) { info = it }
+            ReceiptCard(repo) { info = it }
+        }
+
         PrinterCard(repo) { info = it }
 
         info?.let { Banner(it, GreenSoft, GreenDark) }
@@ -199,6 +204,7 @@ fun AkunScreen(container: AppContainer, repo: PosRepository, claims: Claims) {
                     try {
                         client.function("delete_account")
                         repo.clearLocal()
+                        container.branding.clear()
                         client.session.clear()
                     } catch (e: Exception) {
                         errorMsg = friendlyError(e)

@@ -28,6 +28,7 @@ data class ProductEntity(
     val deleted: Boolean,
     val updatedAt: String?,
     val imagePath: String? = null,
+    @ColumnInfo(defaultValue = "0") val costPrice: Long = 0,
 )
 
 @Entity(tableName = "orders")
@@ -41,6 +42,11 @@ data class OrderEntity(
     val createdAtMs: Long,
     val synced: Boolean,
     @ColumnInfo(defaultValue = "PAID") val status: String = "PAID",
+    @ColumnInfo(defaultValue = "DINE_IN") val orderType: String = "DINE_IN",
+    val tableNo: String? = null,
+    @ColumnInfo(defaultValue = "0") val subtotal: Long = 0,
+    @ColumnInfo(defaultValue = "0") val discount: Long = 0,
+    val promoSummary: String? = null,
 )
 
 @Entity(tableName = "order_items", indices = [Index("orderId")])
@@ -52,6 +58,8 @@ data class OrderItemEntity(
     val unitPrice: Long,
     val qty: Double,
     val subtotal: Long,
+    @ColumnInfo(defaultValue = "0") val unitCost: Long = 0,
+    val note: String? = null,
 )
 
 @Entity(tableName = "kv")
@@ -85,6 +93,15 @@ abstract class PosDao {
 
     @Query("SELECT * FROM products WHERE id = :id")
     abstract suspend fun product(id: String): ProductEntity?
+
+    @Query("SELECT COALESCE(SUM(total), 0) AS omzet, COUNT(*) AS trx FROM orders WHERE createdAtMs >= :fromMs AND status = 'PAID' AND outletId = :outletId")
+    abstract fun todayTotals(fromMs: Long, outletId: String): Flow<TodayTotals>
+
+    @Query("SELECT COALESCE(SUM(i.unitCost * i.qty), 0) FROM order_items i JOIN orders o ON o.id = i.orderId WHERE o.createdAtMs >= :fromMs AND o.status = 'PAID' AND o.outletId = :outletId")
+    abstract fun todayCost(fromMs: Long, outletId: String): Flow<Double>
+
+    @Query("SELECT i.productName AS name, SUM(i.qty) AS qty FROM order_items i JOIN orders o ON o.id = i.orderId WHERE o.createdAtMs >= :fromMs AND o.status = 'PAID' AND o.outletId = :outletId GROUP BY i.productName ORDER BY qty DESC LIMIT 1")
+    abstract fun topToday(fromMs: Long, outletId: String): Flow<TopProduct?>
 
     @Query("SELECT * FROM orders ORDER BY createdAtMs DESC LIMIT 500")
     abstract fun ordersFlow(): Flow<List<OrderEntity>>
@@ -133,7 +150,7 @@ abstract class PosDao {
 
 @Database(
     entities = [ProductEntity::class, OrderEntity::class, OrderItemEntity::class, KvEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -145,7 +162,7 @@ abstract class PosDatabase : RoomDatabase() {
 
         fun get(context: Context): PosDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, PosDatabase::class.java, "pos.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build().also { instance = it }
         }
     }
@@ -156,5 +173,22 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'PAID'")
         db.execSQL("ALTER TABLE products ADD COLUMN imagePath TEXT")
+    }
+}
+
+data class TodayTotals(val omzet: Long, val trx: Int)
+data class TopProduct(val name: String, val qty: Double)
+
+/** v1.2: HPP, order type/table, subtotal/discount/promo, item cost and note. */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE products ADD COLUMN costPrice INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE orders ADD COLUMN orderType TEXT NOT NULL DEFAULT 'DINE_IN'")
+        db.execSQL("ALTER TABLE orders ADD COLUMN tableNo TEXT")
+        db.execSQL("ALTER TABLE orders ADD COLUMN subtotal INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE orders ADD COLUMN promoSummary TEXT")
+        db.execSQL("ALTER TABLE order_items ADD COLUMN unitCost INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE order_items ADD COLUMN note TEXT")
     }
 }

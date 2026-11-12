@@ -45,6 +45,10 @@ data class Outlet(
     val merchantQrisPath: String? = null,
     val isMain: Boolean = false,
     val deletedAt: String? = null,
+    val phone: String? = null,
+    val receiptHeader: String? = null,
+    val receiptFooter: String? = null,
+    val receiptShowLogo: Boolean = true,
 )
 
 @Serializable
@@ -55,6 +59,7 @@ data class ProductDto(
     val name: String,
     val category: String? = null,
     val price: Long,
+    val costPrice: Long = 0,
     val imagePath: String? = null,
     val isActive: Boolean = true,
     val deletedAt: String? = null,
@@ -90,4 +95,23 @@ data class Membership(
     val tenantId: String? = null,
     val outletId: String? = null,
     val role: String,
+)
+
+@Serializable
+data class TenantInfo(
+    val businessName: String,
+    val phoneWa: String? = null,
+    val waOptIn: Boolean = false,
+    val email: String? = null,
+    val logoPath: String? = null,
+    val loginBgPath: String? = null,
+    val theme: String = "BENTO",
+)
+
+@Serializable
+data class ProductOutletRow(
+    val productId: String,
+    val outletId: String,
+    val isAvailable: Boolean = true,
+    val priceOverride: Long? = null,
 )

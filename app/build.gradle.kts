@@ -22,7 +22,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = ciBuildNumber
-        versionName = "1.1.0"
+        versionName = "1.2.0"
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
     }
@@ -47,6 +47,7 @@ android {
         getByName("tenant") {
             java.srcDir("src/pos/java")
             manifest.srcFile("src/pos/AndroidManifest.xml")
+            res.srcDir("src/pos/res")
         }
     }
 

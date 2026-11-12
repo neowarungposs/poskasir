@@ -11,6 +11,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        com.neowarungposs.poskasir.ui.ThemeState.load(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel("general", "Pemberitahuan", NotificationManager.IMPORTANCE_DEFAULT)
