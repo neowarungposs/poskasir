@@ -162,7 +162,12 @@ fun LaporanScreen(repo: PosRepository) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Kpi("Laba kotor", rupiah(laba), "Margin ${"%.1f".format(marginPct)}%", Modifier.weight(1f))
+            Kpi("Laba kotor", rupiah(laba), "dari omzet − HPP", Modifier.weight(1f))
+            Kpi("Margin", "${"%.1f".format(marginPct)}%", "laba ÷ omzet", Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val top = d.arr("by_product").firstOrNull()
+            Kpi("Terlaris", top?.s("name") ?: "-", top?.let { "${qtyText(it.d("qty"))} terjual · ${rupiah(it.l("omzet"))}" } ?: "Belum ada", Modifier.weight(1f))
             Kpi("HPP / modal", rupiah(hpp), "dari harga modal produk", Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -216,7 +221,20 @@ fun LaporanScreen(repo: PosRepository) {
             }
         }
         Section("Per kasir") { d.arr("by_cashier").forEach { c -> RowLine(c.s("name"), "${c.l("trx")} trx", rupiah(c.l("omzet")), c.l("omzet"), omzet) } }
-        Section("Metode bayar") { d.arr("by_method").forEach { c -> RowLine(payLabel(c.s("name")), "${c.l("trx")} trx", rupiah(c.l("omzet")), c.l("omzet"), omzet) } }
+        Section("Laba & margin per metode bayar") {
+            Row(Modifier.fillMaxWidth()) {
+                listOf("Metode" to 1.3f, "Omzet" to 1.2f, "Laba" to 1.2f, "Margin" to 0.8f).forEach { (h, w) ->
+                    Text(h, Modifier.weight(w), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = if (h == "Metode") androidx.compose.ui.text.style.TextAlign.Start else androidx.compose.ui.text.style.TextAlign.End)
+                }
+            }
+            val rows = d.arr("by_method")
+            rows.forEach { c ->
+                MethodRow(payLabel(c.s("name")) + " · ${c.l("trx")}", c.l("omzet"), c.l("omzet") - c.l("hpp"), bold = false)
+            }
+            androidx.compose.material3.HorizontalDivider()
+            MethodRow("Total · ${rows.sumOf { it.l("trx") }}", rows.sumOf { it.l("omzet") }, rows.sumOf { it.l("omzet") - it.l("hpp") }, bold = true)
+        }
         Text("Hanya transaksi yang sudah tersinkron dari HP kasir. Detail per transaksi ada di file Excel.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(24.dp))
     }
@@ -233,6 +251,19 @@ private fun Kpi(label: String, value: String, sub: String, modifier: Modifier) {
             Text(value, fontFamily = Display, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(sub, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+@Composable
+private fun MethodRow(label: String, omzet: Long, laba: Long, bold: Boolean) {
+    val w = if (bold) FontWeight.Bold else FontWeight.Normal
+    val end = androidx.compose.ui.text.style.TextAlign.End
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1.3f), fontWeight = w, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(rupiah(omzet), Modifier.weight(1.2f), fontWeight = w, fontSize = 14.sp, textAlign = end)
+        Text(rupiah(laba), Modifier.weight(1.2f), fontWeight = w, fontSize = 14.sp, textAlign = end)
+        Text(if (omzet > 0) "${"%.1f".format(laba * 100.0 / omzet)}%" else "-", Modifier.weight(0.8f), fontWeight = w, fontSize = 14.sp, textAlign = end,
+            color = MaterialTheme.colorScheme.secondary)
     }
 }
 
@@ -290,7 +321,13 @@ private fun buildXlsx(d: JsonObject, rangeLabel: String, outlet: String): XlsxWr
                 listOf(it.s("name"), it.d("qty"), o, h, o - h, if (o > 0 && h > 0) Math.round((o - h) * 1000.0 / o) / 10.0 else null)
             })
         .sheet("Per Kasir", listOf(listOf("Kasir", "Transaksi", "Omzet")) + d.arr("by_cashier").map { listOf(it.s("name"), it.l("trx"), it.l("omzet")) })
-        .sheet("Per Metode", listOf(listOf("Metode", "Transaksi", "Omzet")) + d.arr("by_method").map { listOf(payLabel(it.s("name")), it.l("trx"), it.l("omzet")) })
+        .sheet("Per Metode", d.arr("by_method").let { rows ->
+            fun m(o: Long, h: Long): Double? = if (o > 0) Math.round((o - h) * 1000.0 / o) / 10.0 else null
+            listOf(listOf("Metode", "Transaksi", "Omzet", "HPP", "Laba kotor", "Margin %")) +
+                rows.map { listOf(payLabel(it.s("name")), it.l("trx"), it.l("omzet"), it.l("hpp"), it.l("omzet") - it.l("hpp"), m(it.l("omzet"), it.l("hpp"))) } +
+                listOf(listOf("TOTAL", rows.sumOf { it.l("trx") }, rows.sumOf { it.l("omzet") }, rows.sumOf { it.l("hpp") },
+                    rows.sumOf { it.l("omzet") - it.l("hpp") }, m(rows.sumOf { it.l("omzet") }, rows.sumOf { it.l("hpp") })))
+        })
         .sheet("Per Jam", listOf(listOf("Jam", "Transaksi", "Omzet")) + d.arr("by_hour").map { listOf("%02d:00".format(it.l("hour")), it.l("trx"), it.l("omzet")) })
         .sheet("Transaksi", listOf(listOf("No. struk", "Waktu", "Cabang", "Kasir", "Metode", "Subtotal", "Diskon", "Total", "Status", "Promo")) +
             d.arr("transactions").map {

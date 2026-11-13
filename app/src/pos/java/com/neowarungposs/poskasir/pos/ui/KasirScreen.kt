@@ -39,6 +39,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocalOffer
@@ -152,6 +154,9 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
     var detail by remember { mutableStateOf<Item?>(null) }
     var sheet by remember { mutableStateOf(false) }
     var receipt by remember { mutableStateOf<Pair<OrderEntity, List<OrderItemEntity>>?>(null) }
+    var showPromos by remember { mutableStateOf(false) }
+    val prefs = LocalContext.current.getSharedPreferences("ui", Context.MODE_PRIVATE)
+    var listView by remember { mutableStateOf(prefs.getBoolean("kasir_list", false)) }
 
     val categories = listOf("Semua") + (if (activePromos.isNotEmpty()) listOf("Promo") else emptyList()) +
         items.mapNotNull { it.product.category?.trim()?.ifEmpty { null } }.distinct().sorted()
@@ -171,7 +176,9 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
         val q = (cart[id] ?: 0) + d
         if (q <= 0) { cart.remove(id); notes.remove(id) } else cart[id] = q
     }
-    val cartState = CartState(lines, applied, subtotal, discount, total, orderType, tableNo, notes, gate.canSell,
+    val hints = activePromos.filter { it.type == "MIN_SPEND" && it.num("min") > subtotal && subtotal > 0 && applied.none { a -> a.promoId == it.id } }
+        .map { "Belanja ${rupiah(it.num("min") - subtotal)} lagi, dapat potongan ${rupiah(it.num("amount"))} (${it.name})" }
+    val cartState = CartState(lines, applied, subtotal, discount, total, orderType, tableNo, notes, gate.canSell, hints,
         onQty = add, onType = { orderType = it }, onTable = { tableNo = it.take(6) },
         onClear = { cart.clear(); notes.clear() }, onPay = { paying = true; sheet = false })
 
@@ -180,17 +187,26 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 HeaderCard(repo, outlet, isAdmin, query) { query = it }
-                StatsRow(repo, outletId, isAdmin, activePromos)
+                if (activePromos.isNotEmpty()) PromoStrip(activePromos) { showPromos = true }
                 Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    categories.forEach { c ->
-                        FilterChip(
-                            selected = category == c, onClick = { category = c },
-                            label = { Text(c) },
-                            leadingIcon = if (c == "Promo") ({ Icon(Icons.Filled.LocalOffer, null, Modifier.size(16.dp)) }) else null,
-                        )
+                    Row(
+                        Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        categories.forEach { c ->
+                            FilterChip(
+                                selected = category == c, onClick = { category = c },
+                                label = { Text(if (c == "Promo") "Promo · ${activePromos.size}" else c) },
+                                leadingIcon = if (c == "Promo") ({ Icon(Icons.Filled.LocalOffer, null, Modifier.size(16.dp)) }) else null,
+                            )
+                        }
+                    }
+                    IconButton(onClick = { listView = !listView; prefs.edit().putBoolean("kasir_list", listView).apply() }) {
+                        Icon(if (listView) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
+                            contentDescription = if (listView) "Tampilan grid" else "Tampilan daftar")
                     }
                 }
                 Box(Modifier.weight(1f)) {
@@ -199,6 +215,15 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
                             if (isAdmin) "Belum ada produk untuk cabang ini. Tambahkan di Kelola > Produk." else "Belum ada produk. Minta pemilik menambahkan menu.",
                             modifier = Modifier.padding(24.dp),
                         )
+                    } else if (listView) {
+                        LazyColumn(
+                            contentPadding = PaddingValues(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(shown, key = { it.product.id }) { i ->
+                                ProductRow(repo, i, cart[i.product.id] ?: 0, onQty = { d -> add(i.product.id, d) }, onLong = { detail = i })
+                            }
+                        }
                     } else {
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(if (wide) 150.dp else 132.dp),
@@ -254,6 +279,89 @@ fun KasirScreen(repo: PosRepository, gate: Gate, isAdmin: Boolean) {
         )
     }
     receipt?.let { (o, its) -> InvoiceDialog(repo, o, its) { receipt = null } }
+    if (showPromos) {
+        AlertDialog(
+            onDismissRequest = { showPromos = false },
+            title = { Text("Promo aktif sekarang") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    activePromos.forEach { pr ->
+                        Column {
+                            Text(pr.name, fontWeight = FontWeight.SemiBold)
+                            Text(pr.describe(), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Text("Diskon dihitung otomatis di keranjang.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPromos = false; category = "Promo" }) { Text("Lihat menu promo") } },
+            dismissButton = { TextButton(onClick = { showPromos = false }) { Text("Tutup") } },
+        )
+    }
+}
+
+/** Slim promo ticker under the header (only while a promo is running). */
+@Composable
+private fun PromoStrip(promos: List<PromoDto>, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.LocalOffer, null, Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${promos.size} promo aktif · " + promos.joinToString(" · ") { it.name },
+                Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text("Lihat", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** List-mode row: thumbnail, name, price and an inline qty stepper. */
+@Composable
+private fun ProductRow(repo: PosRepository, i: Item, qty: Int, onQty: (Int) -> Unit, onLong: () -> Unit) {
+    val p = i.product
+    val palette = LocalPalette.current
+    val photo = remember(p.id, p.updatedAt) { repo.localImage(p.id).takeIf { p.imagePath != null && it.exists() } }
+    val tile = palette.tiles[(p.name.hashCode() and 0x7fffffff) % palette.tiles.size]
+    val selected = qty > 0
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).combinedClickable(onClick = { onQty(1) }, onLongClick = onLong),
+        shape = RoundedCornerShape(18.dp),
+        color = if (palette.glass) Color.White.copy(alpha = 0.035f) else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = if (palette.glass) 0.08f else 0f)),
+    ) {
+        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(tile.first), contentAlignment = Alignment.Center) {
+                if (photo != null) AsyncImage(photo, p.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else Text(p.name.take(2).uppercase(), fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = tile.second)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(p.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (i.promo) {
+                        Spacer(Modifier.width(6.dp))
+                        Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.tertiary, contentColor = MaterialTheme.colorScheme.onTertiary) {
+                            Text("PROMO", Modifier.padding(horizontal = 5.dp, vertical = 1.dp), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Text(rupiah(i.price), fontFamily = Display, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                p.category?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            if (qty > 0) {
+                IconButton(onClick = { onQty(-1) }, Modifier.size(40.dp)) { Icon(Icons.Filled.Remove, "Kurangi") }
+                Text("$qty", fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 20.dp))
+            }
+            IconButton(onClick = { onQty(1) }, Modifier.size(40.dp)) { Icon(Icons.Filled.Add, "Tambah") }
+        }
+    }
 }
 
 private class CartState(
@@ -266,6 +374,7 @@ private class CartState(
     val tableNo: String,
     val notes: Map<String, String>,
     val canSell: Boolean,
+    val hints: List<String>,
     val onQty: (String, Int) -> Unit,
     val onType: (String) -> Unit,
     val onTable: (String) -> Unit,
@@ -347,61 +456,6 @@ private fun HeaderCard(repo: PosRepository, outlet: Outlet?, isAdmin: Boolean, q
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
-        }
-    }
-}
-
-@Composable
-private fun StatsRow(repo: PosRepository, outletId: String?, isAdmin: Boolean, activePromos: List<PromoDto>) {
-    val palette = LocalPalette.current
-    val from = remember { LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() }
-    val key = outletId ?: ""
-    val totals by remember(key) { repo.dao.todayTotals(from, key) }.collectAsState(initial = TodayTotals(0, 0))
-    val cost by remember(key) { repo.dao.todayCost(from, key) }.collectAsState(initial = 0.0)
-    val top by remember(key) { repo.dao.topToday(from, key) }.collectAsState(initial = null)
-
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp).padding(bottom = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        val surface = glassColor()
-        StatTile("Omzet hari ini", rupiah(totals.omzet), "${totals.trx} transaksi", heroBrush(), palette.onHero, palette.onHeroMuted,
-            width = 210.dp, big = true, border = palette.heroBorder)
-        if (isAdmin) {
-            val margin = totals.omzet - cost.toLong()
-            val pct = if (totals.omzet > 0) margin * 100 / totals.omzet else 0
-            StatTile("Laba kotor", rupiah(margin), "Margin $pct%", SolidColor(surface), MaterialTheme.colorScheme.onSurface,
-                MaterialTheme.colorScheme.onSurfaceVariant, progress = (pct / 100f).coerceIn(0f, 1f), progressColor = palette.accent2)
-        }
-        StatTile("Terlaris", top?.name ?: "-", top?.let { "${it.qty.toLong()} terjual" } ?: "Belum ada",
-            SolidColor(surface), MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant)
-        StatTile("Promo aktif · ${activePromos.size}", activePromos.firstOrNull()?.name ?: "Tidak ada", activePromos.firstOrNull()?.describe() ?: "Buat di Kelola › Promo",
-            SolidColor(palette.promo), palette.onPromo, palette.onPromo.copy(alpha = 0.8f), border = if (palette.glass) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f) else null)
-    }
-}
-
-@Composable
-private fun StatTile(
-    label: String, value: String, sub: String, bg: Brush, fg: Color, muted: Color,
-    width: androidx.compose.ui.unit.Dp = 160.dp, big: Boolean = false, border: Color? = null,
-    progress: Float? = null, progressColor: Color = Color.Unspecified,
-) {
-    val outline = border ?: if (LocalPalette.current.glass) Color.White.copy(alpha = 0.08f) else null
-    Box(
-        Modifier.width(width).clip(RoundedCornerShape(22.dp)).background(bg)
-            .then(if (outline != null) Modifier.border(1.dp, outline, RoundedCornerShape(22.dp)) else Modifier),
-    ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Text(label, fontSize = 12.sp, color = muted, maxLines = 1)
-            Text(value, color = fg, fontFamily = Display, fontSize = if (big) 24.sp else 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (progress != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                    Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.08f))) {
-                        Box(Modifier.fillMaxWidth(progress).height(6.dp).clip(RoundedCornerShape(3.dp)).background(progressColor))
-                    }
-                    Text(" $sub", fontSize = 12.sp, color = progressColor, fontWeight = FontWeight.SemiBold)
-                }
-            } else Text(sub, fontSize = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -538,6 +592,11 @@ private fun CartPanel(s: CartState, modifier: Modifier) {
             }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        s.hints.forEach { h ->
+            Surface(Modifier.fillMaxWidth().padding(bottom = 6.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer) {
+                Text("✦ $h", Modifier.padding(horizontal = 10.dp, vertical = 8.dp), fontSize = 12.sp)
+            }
+        }
         s.applied.forEach { a ->
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = RoundedCornerShape(6.dp), color = palette.promo, contentColor = palette.onPromo) {
