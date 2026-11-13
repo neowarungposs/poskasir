@@ -2,6 +2,19 @@
 
 package com.neowarungposs.poskasir.pos.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.style.TextAlign
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -137,106 +150,133 @@ fun LaporanScreen(repo: PosRepository) {
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ranges.forEachIndexed { i, (label, _) -> FilterChip(selected = range == i, onClick = { range = i }, label = { Text(label) }) }
+    val doShare: () -> Unit = {
+        info = null
+        data?.let { d ->
+            scope.launch {
+                try { shareXlsx(ctx, buildXlsx(d, ranges[range].first, outletName(outlets, outletId)), fileName) }
+                catch (e: Exception) { error = friendlyError(e) }
+            }
         }
-        if (outlets.size > 1) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = outletId == null, onClick = { outletId = null }, label = { Text("Semua cabang") })
-            outlets.forEach { o -> FilterChip(selected = outletId == o.id, onClick = { outletId = o.id }, label = { Text(o.name) }) }
-        }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        ErrorText(error)
-        val d = data ?: return@Column
+    }
 
-        val omzet = d.l("omzet"); val hpp = d.l("hpp"); val laba = omzet - hpp
-        val marginPct = if (omzet > 0) laba * 100.0 / omzet else 0.0
-        Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(heroBrush())
-                .then(palette.heroBorder?.let { Modifier.border(1.dp, it, RoundedCornerShape(24.dp)) } ?: Modifier),
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 720.dp
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp).padding(bottom = if (wide) 0.dp else 84.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(Modifier.padding(18.dp)) {
-                Text("Omzet · ${outletName(outlets, outletId)}", color = palette.onHeroMuted, fontSize = 13.sp)
-                Text(rupiah(omzet), color = palette.onHero, fontFamily = Display, fontSize = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
-                Text("${d.l("trx")} transaksi · rata-rata ${rupiah(if (d.l("trx") > 0) omzet / d.l("trx") else 0)}", color = palette.onHeroMuted, fontSize = 13.sp)
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Kpi("Laba kotor", rupiah(laba), "dari omzet − HPP", Modifier.weight(1f))
-            Kpi("Margin", "${"%.1f".format(marginPct)}%", "laba ÷ omzet", Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            val top = d.arr("by_product").firstOrNull()
-            Kpi("Terlaris", top?.s("name") ?: "-", top?.let { "${qtyText(it.d("qty"))} terjual · ${rupiah(it.l("omzet"))}" } ?: "Belum ada", Modifier.weight(1f))
-            Kpi("HPP / modal", rupiah(hpp), "dari harga modal produk", Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Kpi("Diskon promo", rupiah(d.l("discount")), "dari ${rupiah(d.l("subtotal"))}", Modifier.weight(1f))
-            Kpi("Void", "${d.l("void_count")}", rupiah(d.l("void_total")), Modifier.weight(1f))
-        }
-        if (hpp == 0L && omzet > 0) Text("Isi harga modal di Kelola > Produk agar laba & margin akurat.", fontSize = 12.sp, color = MaterialTheme.colorScheme.tertiary)
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { info = null; saver.launch(fileName) }, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.Download, null); Spacer(Modifier.width(6.dp)); Text("Simpan Excel")
-            }
-            OutlinedButton(onClick = {
-                info = null
-                scope.launch {
-                    try { shareXlsx(ctx, buildXlsx(d, ranges[range].first, outletName(outlets, outletId)), fileName) }
-                    catch (e: Exception) { error = friendlyError(e) }
+            // ---- header: title, period, outlet, export
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("KELOLA · LAPORAN", fontSize = 11.sp, letterSpacing = 0.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (wide) "Laporan penjualan" else "Laporan", fontFamily = Display, fontSize = if (wide) 28.sp else 24.sp, fontWeight = FontWeight.SemiBold)
                 }
-            }, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.Share, null); Spacer(Modifier.width(6.dp)); Text("Kirim WA")
+                if (wide) PeriodSegment(ranges.map { it.first }, range) { range = it }
+                OutletPicker(outlets, outletId) { outletId = it }
+                if (wide) {
+                    Button(onClick = { info = null; saver.launch(fileName) }, enabled = data != null, shape = RoundedCornerShape(14.dp)) { Text("Simpan Excel", fontWeight = FontWeight.Bold) }
+                    OutlinedButton(onClick = doShare, enabled = data != null, shape = RoundedCornerShape(14.dp)) { Text("Kirim WA") }
+                }
             }
-        }
-        info?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary) }
+            if (!wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ranges.forEachIndexed { i, (label, _) -> FilterChip(selected = range == i, onClick = { range = i }, label = { Text(label) }) }
+            }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            ErrorText(error)
+            info?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary) }
+            val d = data ?: return@Column
 
-        val hours = d.arr("by_hour")
-        if (hours.isNotEmpty()) Section("Jam ramai") {
-            val maxO = hours.maxOf { it.l("omzet") }.coerceAtLeast(1)
-            Row(Modifier.fillMaxWidth().height(110.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                (0..23).forEach { h ->
-                    val v = hours.firstOrNull { it.l("hour") == h.toLong() }?.l("omzet") ?: 0
-                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            Modifier.fillMaxWidth().fillMaxHeight((v.toFloat() / maxO).coerceAtLeast(0.02f) * 0.85f)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (v == maxO) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                        )
-                        if (h % 3 == 0) Text("$h", fontSize = 9.sp) else Spacer(Modifier.height(12.dp))
+            val omzet = d.l("omzet"); val hpp = d.l("hpp"); val laba = omzet - hpp
+            val trx = d.l("trx")
+            val margin = if (omzet > 0) laba * 100.0 / omzet else 0.0
+            val top = d.arr("by_product").firstOrNull()
+            val methods = d.arr("by_method")
+            val hours = d.arr("by_hour")
+            val products = d.arr("by_product").take(if (wide) 8 else 6)
+            val cashiers = d.arr("by_cashier")
+            val rangeLabel = ranges[range].first.lowercase()
+
+            val hero: @Composable (Modifier) -> Unit = { m ->
+                Box(
+                    m.clip(RoundedCornerShape(22.dp)).background(heroBrush())
+                        .then(palette.heroBorder?.let { Modifier.border(1.dp, it, RoundedCornerShape(22.dp)) } ?: Modifier)
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                ) {
+                    Column {
+                        Text("Omzet $rangeLabel · $trx transaksi", fontSize = 12.sp, color = palette.onHeroMuted)
+                        Text(rupiah(omzet), color = palette.onHero, fontFamily = Display, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp, maxLines = 1)
+                        Text("Subtotal ${rupiah(d.l("subtotal"))} · diskon −${rupiah(d.l("discount"))}", fontSize = 12.sp, color = palette.onHeroMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            val kLaba: @Composable (Modifier) -> Unit = { m -> Kpi("Laba kotor", rupiah(laba), "HPP ${rupiah(hpp)}", m) }
+            val kMargin: @Composable (Modifier) -> Unit = { m -> MarginKpi(margin, m) }
+            val kTop: @Composable (Modifier) -> Unit = { m ->
+                Kpi("Terlaris", top?.s("name") ?: "-", top?.let { "${qtyText(it.d("qty"))} terjual · ${rupiah(it.l("omzet"))}" } ?: "Belum ada", m, small = true)
+            }
+            val kTrx: @Composable (Modifier) -> Unit = { m ->
+                Kpi(if (wide) "Transaksi" else "Rata-rata / struk", if (wide) "$trx" else rupiah(if (trx > 0) omzet / trx else 0),
+                    (if (wide) "rata-rata ${rupiah(if (trx > 0) omzet / trx else 0)} · " else "") + "void ${d.l("void_count")}", m)
+            }
+
+            if (hpp == 0L && omzet > 0) Text("Isi harga modal di Kelola › Produk agar laba & margin akurat.", fontSize = 12.sp, color = MaterialTheme.colorScheme.tertiary)
+
+            if (wide) {
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    hero(Modifier.weight(1.5f).fillMaxHeight()); kLaba(Modifier.weight(1f).fillMaxHeight()); kMargin(Modifier.weight(1f).fillMaxHeight())
+                    kTop(Modifier.weight(1f).fillMaxHeight()); kTrx(Modifier.weight(1f).fillMaxHeight())
+                }
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HoursCard(hours, Modifier.weight(1f).fillMaxHeight(), barHeight = 150.dp)
+                    MethodCard(methods, wide = true, modifier = Modifier.weight(1.25f).fillMaxHeight())
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ProductCard(products, d.l("discount"), wide = true, modifier = Modifier.weight(1.6f))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CashierCard(cashiers, Modifier.fillMaxWidth())
+                        PromoVoidCard(d.l("discount"), d.l("void_count"), d.l("void_total"), Modifier.fillMaxWidth())
+                    }
+                }
+                if (outletId == null && outlets.size > 1) OutletCard(d.arr("by_outlet"), omzet, Modifier.fillMaxWidth())
+            } else {
+                hero(Modifier.fillMaxWidth())
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    kLaba(Modifier.weight(1f).fillMaxHeight()); kMargin(Modifier.weight(1f).fillMaxHeight())
+                }
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    kTop(Modifier.weight(1f).fillMaxHeight()); kTrx(Modifier.weight(1f).fillMaxHeight())
+                }
+                MethodCard(methods, wide = false, modifier = Modifier.fillMaxWidth())
+                HoursCard(hours, Modifier.fillMaxWidth(), barHeight = 110.dp)
+                ProductCard(products, d.l("discount"), wide = false, modifier = Modifier.fillMaxWidth())
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CashierCard(cashiers, Modifier.weight(1f).fillMaxHeight())
+                    PromoVoidCard(d.l("discount"), d.l("void_count"), d.l("void_total"), Modifier.weight(1f).fillMaxHeight())
+                }
+                if (outletId == null && outlets.size > 1) OutletCard(d.arr("by_outlet"), omzet, Modifier.fillMaxWidth())
+            }
+            Text("Hanya transaksi yang sudah tersinkron dari HP kasir. Detail per struk ada di file Excel.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        if (!wide) {
+            Surface(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                shape = RoundedCornerShape(22.dp),
+                color = if (palette.glass) Color(0xF0141A26) else MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)), shadowElevation = 12.dp,
+            ) {
+                Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = { info = null; saver.launch(fileName) }, enabled = data != null, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Filled.Download, null); Spacer(Modifier.width(6.dp)); Text("Simpan Excel", fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(onClick = doShare, enabled = data != null, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Filled.Share, null); Spacer(Modifier.width(6.dp)); Text("Kirim WA")
                     }
                 }
             }
         }
-        if (outletId == null && outlets.size > 1) Section("Per cabang") {
-            d.arr("by_outlet").forEach { o ->
-                RowLine(o.s("name"), "${o.l("trx")} trx · laba ${rupiah(o.l("omzet") - o.l("hpp"))}", rupiah(o.l("omzet")), o.l("omzet"), omzet)
-            }
-        }
-        Section("Produk terlaris") {
-            d.arr("by_product").take(15).forEach { p ->
-                val m = p.l("omzet") - p.l("hpp")
-                RowLine(p.s("name"), "${qtyText(p.d("qty"))} terjual · margin ${if (p.l("omzet") > 0 && p.l("hpp") > 0) "${m * 100 / p.l("omzet")}%" else "-"}", rupiah(p.l("omzet")), p.l("omzet"), omzet)
-            }
-        }
-        Section("Per kasir") { d.arr("by_cashier").forEach { c -> RowLine(c.s("name"), "${c.l("trx")} trx", rupiah(c.l("omzet")), c.l("omzet"), omzet) } }
-        Section("Laba & margin per metode bayar") {
-            Row(Modifier.fillMaxWidth()) {
-                listOf("Metode" to 1.3f, "Omzet" to 1.2f, "Laba" to 1.2f, "Margin" to 0.8f).forEach { (h, w) ->
-                    Text(h, Modifier.weight(w), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = if (h == "Metode") androidx.compose.ui.text.style.TextAlign.Start else androidx.compose.ui.text.style.TextAlign.End)
-                }
-            }
-            val rows = d.arr("by_method")
-            rows.forEach { c ->
-                MethodRow(payLabel(c.s("name")) + " · ${c.l("trx")}", c.l("omzet"), c.l("omzet") - c.l("hpp"), bold = false)
-            }
-            androidx.compose.material3.HorizontalDivider()
-            MethodRow("Total · ${rows.sumOf { it.l("trx") }}", rows.sumOf { it.l("omzet") }, rows.sumOf { it.l("omzet") - it.l("hpp") }, bold = true)
-        }
-        Text("Hanya transaksi yang sudah tersinkron dari HP kasir. Detail per transaksi ada di file Excel.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -244,54 +284,274 @@ private fun outletName(outlets: List<Outlet>, id: String?) = outlets.firstOrNull
 private fun qtyText(q: Double) = if (q % 1.0 == 0.0) q.toLong().toString() else "%.2f".format(q)
 
 @Composable
-private fun Kpi(label: String, value: String, sub: String, modifier: Modifier) {
-    Card(modifier) {
-        Column(Modifier.padding(14.dp)) {
+private fun Panel(modifier: Modifier, tint: Color? = null, content: @Composable () -> Unit) {
+    val glass = LocalPalette.current.glass
+    val bg = tint?.copy(alpha = 0.10f) ?: if (glass) Color.White.copy(alpha = 0.04f) else MaterialTheme.colorScheme.surface
+    val line = tint?.copy(alpha = 0.32f) ?: Color.White.copy(alpha = if (glass) 0.08f else 0.0f)
+    Box(modifier.clip(RoundedCornerShape(22.dp)).background(bg).border(1.dp, line, RoundedCornerShape(22.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) { content() }
+}
+
+@Composable
+private fun Kpi(label: String, value: String, sub: String, modifier: Modifier, small: Boolean = false) {
+    Panel(modifier) {
+        Column {
             Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, fontFamily = Display, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(sub, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, fontFamily = Display, fontSize = if (small) 17.sp else 21.sp, fontWeight = if (small) FontWeight.SemiBold else FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            Text(sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
-private fun MethodRow(label: String, omzet: Long, laba: Long, bold: Boolean) {
-    val w = if (bold) FontWeight.Bold else FontWeight.Normal
-    val end = androidx.compose.ui.text.style.TextAlign.End
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1.3f), fontWeight = w, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(rupiah(omzet), Modifier.weight(1.2f), fontWeight = w, fontSize = 14.sp, textAlign = end)
-        Text(rupiah(laba), Modifier.weight(1.2f), fontWeight = w, fontSize = 14.sp, textAlign = end)
-        Text(if (omzet > 0) "${"%.1f".format(laba * 100.0 / omzet)}%" else "-", Modifier.weight(0.8f), fontWeight = w, fontSize = 14.sp, textAlign = end,
-            color = MaterialTheme.colorScheme.secondary)
-    }
-}
-
-@Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, fontWeight = FontWeight.Bold)
-            content()
-        }
-    }
-}
-
-@Composable
-private fun RowLine(title: String, sub: String, value: String, part: Long, whole: Long) {
-    Column {
+private fun MarginKpi(margin: Double, modifier: Modifier) {
+    val ring = MaterialTheme.colorScheme.secondary
+    Panel(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(sub, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Canvas(Modifier.size(50.dp)) {
+                val stroke = 7.dp.toPx()
+                drawArc(Color.White.copy(alpha = 0.1f), 0f, 360f, false, style = Stroke(stroke))
+                drawArc(ring, -90f, (margin.coerceIn(0.0, 100.0) * 3.6).toFloat(), false, style = Stroke(stroke, cap = StrokeCap.Round))
             }
-            Text(value, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("Margin", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${"%.1f".format(margin)}%", fontFamily = Display, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = ring)
+            }
         }
-        LinearProgressIndicator(
-            progress = { if (whole > 0) (part.toFloat() / whole).coerceIn(0f, 1f) else 0f },
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(4.dp),
-            trackColor = Color.Transparent,
-        )
+    }
+}
+
+@Composable
+private fun CardTitle(title: String, trailing: String? = null) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        trailing?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
+
+@Composable
+private fun methodColor(i: Int): Color = when (i % 3) {
+    0 -> MaterialTheme.colorScheme.primary
+    1 -> MaterialTheme.colorScheme.secondary
+    else -> MaterialTheme.colorScheme.tertiary
+}
+
+private fun pct(laba: Long, omzet: Long) = if (omzet > 0) "${"%.1f".format(laba * 100.0 / omzet)}%" else "-"
+
+@Composable
+private fun MethodCard(rows: List<JsonObject>, wide: Boolean, modifier: Modifier) {
+    val total = rows.sumOf { it.l("omzet") }
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val margin = MaterialTheme.colorScheme.secondary
+    Panel(modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            CardTitle("Laba & margin per metode bayar")
+            if (total > 0) Row(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(5.dp)), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                rows.forEachIndexed { i, r ->
+                    val w = r.l("omzet").toFloat() / total
+                    if (w > 0f) Box(Modifier.weight(w).fillMaxHeight().background(methodColor(i)))
+                }
+            }
+            if (rows.isEmpty()) Text("Belum ada transaksi.", fontSize = 13.sp, color = muted)
+            if (wide) {
+                val end = TextAlign.End
+                Row { listOf("Metode" to 1.4f, "Trx" to 0.6f, "Omzet" to 1.2f, "HPP" to 1.1f, "Laba" to 1.1f, "Margin" to 0.8f).forEach { (h, w) ->
+                    Text(h, Modifier.weight(w), fontSize = 12.sp, color = muted, textAlign = if (h == "Metode") TextAlign.Start else end) } }
+                rows.forEachIndexed { i, r ->
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1.4f), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(methodColor(i))); Spacer(Modifier.width(8.dp))
+                            Text(payLabel(r.s("name")), fontSize = 14.sp)
+                        }
+                        Text("${r.l("trx")}", Modifier.weight(0.6f), fontSize = 14.sp, color = muted, textAlign = end)
+                        Text(rupiah(r.l("omzet")), Modifier.weight(1.2f), fontSize = 14.sp, textAlign = end)
+                        Text(rupiah(r.l("hpp")), Modifier.weight(1.1f), fontSize = 14.sp, color = muted, textAlign = end)
+                        Text(rupiah(r.l("omzet") - r.l("hpp")), Modifier.weight(1.1f), fontSize = 14.sp, textAlign = end)
+                        Text(pct(r.l("omzet") - r.l("hpp"), r.l("omzet")), Modifier.weight(0.8f), fontSize = 14.sp, color = margin, textAlign = end)
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.22f))
+                val tH = rows.sumOf { it.l("hpp") }
+                Row {
+                    Text("Total", Modifier.weight(1.4f), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("${rows.sumOf { it.l("trx") }}", Modifier.weight(0.6f), fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = end)
+                    Text(rupiah(total), Modifier.weight(1.2f), fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = end)
+                    Text(rupiah(tH), Modifier.weight(1.1f), fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = end)
+                    Text(rupiah(total - tH), Modifier.weight(1.1f), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, textAlign = end)
+                    Text(pct(total - tH, total), Modifier.weight(0.8f), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = margin, textAlign = end)
+                }
+            } else {
+                rows.forEachIndexed { i, r ->
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(methodColor(i))); Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(payLabel(r.s("name")), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text("${r.l("trx")} trx · omzet ${rupiah(r.l("omzet"))} · HPP ${rupiah(r.l("hpp"))}", fontSize = 11.sp, color = muted)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(rupiah(r.l("omzet") - r.l("hpp")), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text("margin ${pct(r.l("omzet") - r.l("hpp"), r.l("omzet"))}", fontSize = 11.sp, color = margin)
+                        }
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.22f))
+                val tH = rows.sumOf { it.l("hpp") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Total", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("${rows.sumOf { it.l("trx") }} trx · omzet ${rupiah(total)} · HPP ${rupiah(tH)}", fontSize = 11.sp, color = muted)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(rupiah(total - tH), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("margin ${pct(total - tH, total)}", fontSize = 11.sp, color = margin)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HoursCard(hours: List<JsonObject>, modifier: Modifier, barHeight: androidx.compose.ui.unit.Dp) {
+    val peak = hours.maxByOrNull { it.l("omzet") }
+    val maxO = (peak?.l("omzet") ?: 0L).coerceAtLeast(1)
+    val first = hours.minOfOrNull { it.l("hour") }?.toInt() ?: 7
+    val last = hours.maxOfOrNull { it.l("hour") }?.toInt() ?: 21
+    val primary = MaterialTheme.colorScheme.primary
+    Panel(modifier) {
+        Column {
+            CardTitle("Omzet per jam", peak?.let { "ramai ${"%02d".format(it.l("hour"))}:00 · ${rupiah(it.l("omzet"))}" })
+            if (hours.isEmpty()) Text("Belum ada transaksi.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+            else Row(Modifier.fillMaxWidth().height(barHeight).padding(top = 12.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                (minOf(first, 7)..maxOf(last, 21)).forEach { h ->
+                    val v = hours.firstOrNull { it.l("hour") == h.toLong() }?.l("omzet") ?: 0
+                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier.fillMaxWidth().fillMaxHeight((v.toFloat() / maxO).coerceAtLeast(0.03f) * 0.82f)
+                                .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
+                                .background(if (v == maxO) primary else primary.copy(alpha = 0.35f)),
+                        )
+                        Text(if (h % 3 == 0) "$h" else "", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProductCard(rows: List<JsonObject>, discount: Long, wide: Boolean, modifier: Modifier) {
+    val maxO = (rows.maxOfOrNull { it.l("omzet") } ?: 0L).coerceAtLeast(1)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val margin = MaterialTheme.colorScheme.secondary
+    val primary = MaterialTheme.colorScheme.primary
+    Panel(modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            CardTitle("Produk terlaris")
+            if (rows.isEmpty()) Text("Belum ada transaksi.", fontSize = 13.sp, color = muted)
+            if (wide && rows.isNotEmpty()) Row { listOf("Produk" to 2f, "Qty" to 0.6f, "Omzet" to 1.1f, "Laba" to 1.1f, "Margin" to 0.8f).forEach { (h, w) ->
+                Text(h, Modifier.weight(w), fontSize = 12.sp, color = muted, textAlign = if (h == "Produk") TextAlign.Start else TextAlign.End) } }
+            rows.forEach { p ->
+                val o = p.l("omzet"); val lb = o - p.l("hpp")
+                val mg = if (p.l("hpp") > 0) pct(lb, o) else "-"
+                HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                if (wide) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(2f)) {
+                        Text(p.s("name"), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Box(Modifier.padding(top = 5.dp).fillMaxWidth(0.7f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.07f))) {
+                            Box(Modifier.fillMaxWidth(o.toFloat() / maxO).fillMaxHeight().background(primary))
+                        }
+                    }
+                    Text(qtyText(p.d("qty")), Modifier.weight(0.6f), fontSize = 14.sp, color = muted, textAlign = TextAlign.End)
+                    Text(rupiah(o), Modifier.weight(1.1f), fontSize = 14.sp, textAlign = TextAlign.End)
+                    Text(rupiah(lb), Modifier.weight(1.1f), fontSize = 14.sp, textAlign = TextAlign.End)
+                    Text(mg, Modifier.weight(0.8f), fontSize = 14.sp, color = margin, textAlign = TextAlign.End)
+                } else Column {
+                    Row { Text(p.s("name"), Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(rupiah(o), fontSize = 14.sp) }
+                    Row { Text("${qtyText(p.d("qty"))} terjual · laba ${rupiah(lb)}", Modifier.weight(1f), fontSize = 11.sp, color = muted); Text("margin $mg", fontSize = 11.sp, color = margin) }
+                    Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.07f))) {
+                        Box(Modifier.fillMaxWidth(o.toFloat() / maxO).fillMaxHeight().background(primary))
+                    }
+                }
+            }
+            if (discount > 0) Text("Omzet produk dihitung sebelum diskon promo (${rupiah(discount)}).", fontSize = 11.sp, color = muted)
+        }
+    }
+}
+
+@Composable
+private fun CashierCard(rows: List<JsonObject>, modifier: Modifier) {
+    Panel(modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            CardTitle("Per kasir")
+            if (rows.isEmpty()) Text("-", fontSize = 13.sp)
+            rows.forEach { c ->
+                Row {
+                    Text(c.s("name").substringBefore("@"), Modifier.weight(1f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${c.l("trx")} trx · ${rupiah(c.l("omzet"))}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PromoVoidCard(discount: Long, voidCount: Long, voidTotal: Long, modifier: Modifier) {
+    val c = MaterialTheme.colorScheme.tertiary
+    Panel(modifier, tint = c) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Promo & void", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Row { Text("Diskon promo", Modifier.weight(1f), fontSize = 13.sp, color = c); Text("−${rupiah(discount)}", fontSize = 13.sp, color = c) }
+            Row { Text("Void ($voidCount struk)", Modifier.weight(1f), fontSize = 13.sp, color = c); Text(rupiah(voidTotal), fontSize = 13.sp, color = c) }
+        }
+    }
+}
+
+@Composable
+private fun OutletCard(rows: List<JsonObject>, omzet: Long, modifier: Modifier) {
+    Panel(modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            CardTitle("Per cabang")
+            rows.forEach { o ->
+                Row {
+                    Text(o.s("name"), Modifier.weight(1f), fontSize = 13.sp)
+                    Text("${o.l("trx")} trx · ${rupiah(o.l("omzet"))} · laba ${rupiah(o.l("omzet") - o.l("hpp"))}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PeriodSegment(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        labels.forEachIndexed { i, l ->
+            val on = i == selected
+            Surface(
+                onClick = { onSelect(i) }, shape = RoundedCornerShape(10.dp),
+                color = if (on) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                contentColor = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
+            ) { Text(l, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal) }
+        }
+    }
+}
+
+@Composable
+private fun OutletPicker(outlets: List<Outlet>, selected: String?, onSelect: (String?) -> Unit) {
+    if (outlets.size <= 1) return
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { open = true }, shape = RoundedCornerShape(14.dp)) { Text(outletName(outlets, selected) + " ▾", maxLines = 1) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Semua cabang") }, onClick = { open = false; onSelect(null) })
+            outlets.forEach { o -> DropdownMenuItem(text = { Text(o.name) }, onClick = { open = false; onSelect(o.id) }) }
+        }
     }
 }
 

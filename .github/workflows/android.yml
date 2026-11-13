@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERSION_TAG: v1.2.3
+  VERSION_TAG: v1.2.4
 
 jobs:
   build:
