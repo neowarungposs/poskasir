@@ -2,6 +2,12 @@
 
 package com.neowarungposs.poskasir.admin
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.KeyboardType
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -103,6 +109,9 @@ private fun TenantDetail(repo: AdminRepo, t: Tenant, onClose: () -> Unit, onChan
     val context = LocalContext.current
 
     var contacts by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var editContact by remember { mutableStateOf(false) }
+    var phone by remember { mutableStateOf(t.phoneWa ?: "") }
+    var optIn by remember { mutableStateOf(t.waOptIn) }
     LaunchedEffect(t.id) {
         runCatching { history = repo.claimsForTenant(t.id) }
         runCatching { contacts = repo.contactLog(t.id) }
@@ -117,11 +126,36 @@ private fun TenantDetail(repo: AdminRepo, t: Tenant, onClose: () -> Unit, onChan
                 Text("Kode bayar: ${t.payCode.toString().padStart(3, '0')}")
                 Text(tenantStatusLine(t))
                 Text("Email: ${t.email ?: "-"}")
-                Text("WA: ${t.phoneWa ?: "-"} ${if (t.waOptIn) "(setuju diingatkan)" else ""}")
+                if (!editContact) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("WA: ${t.phoneWa ?: "-"} ${if (t.waOptIn) "(setuju diingatkan)" else "(pengingat OFF)"}", Modifier.weight(1f))
+                        TextButton(enabled = !busy, onClick = { editContact = true }) { Text("Ubah") }
+                    }
+                } else {
+                    OutlinedTextField(
+                        phone, { phone = it.filter { c -> c.isDigit() }.take(15) },
+                        label = { Text("Nomor WA (08xx / 62xx)") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Kirim pengingat WA", Modifier.weight(1f))
+                        Switch(checked = optIn, onCheckedChange = { optIn = it })
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(enabled = !busy, onClick = { editContact = false }) { Text("Batal") }
+                        TextButton(enabled = !busy && (phone.isEmpty() || phone.length >= 9), onClick = {
+                            busy = true; error = null
+                            scope.launch {
+                                try { repo.updateContact(t.id, phone, optIn); onChanged() }
+                                catch (e: Exception) { error = friendlyError(e); busy = false }
+                            }
+                        }) { Text("Simpan kontak") }
+                    }
+                }
                 Text("Daftar: ${formatDate(t.createdAt)}")
                 if (t.lifecycle == "CHURNED") Text("Diarsip ${formatDate(t.churnedAt)} · ${t.churnReason ?: ""}", color = RedText)
                 if (contacts.isNotEmpty()) {
-                    Text("Perubahan kontak oleh pemilik", fontWeight = FontWeight.Bold)
+                    Text("Riwayat perubahan kontak", fontWeight = FontWeight.Bold)
                     contacts.take(5).forEach { (at, change) -> Text("${formatDateTime(at)} · $change", fontSize = 12.sp) }
                 }
                 Text("Riwayat klaim", fontWeight = FontWeight.Bold)

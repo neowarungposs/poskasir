@@ -60,7 +60,6 @@ import java.time.Instant
 fun LanggananScreen(container: AppContainer, repo: PosRepository, isAdmin: Boolean) {
     val ent by repo.ent.collectAsState()
     val tenant by repo.tenant.collectAsState()
-    var editContact by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -134,8 +133,8 @@ fun LanggananScreen(container: AppContainer, repo: PosRepository, isAdmin: Boole
                             Text("WhatsApp: ${tenant?.phoneWa?.ifBlank { null } ?: "belum diisi"}", fontWeight = FontWeight.SemiBold)
                             Text("Email: ${tenant?.email ?: "-"}", fontSize = 13.sp)
                             if (tenant != null && tenant?.waOptIn != true) Text("Pengingat WA dimatikan", fontSize = 12.sp, color = RedText)
+                            Text("Kontak dikunci. Untuk mengganti, hubungi admin Kasir Warung.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = { editContact = true }) { Text("Ubah") }
                     }
                 }
             }
@@ -168,38 +167,4 @@ fun LanggananScreen(container: AppContainer, repo: PosRepository, isAdmin: Boole
         ent?.let { PricingSection(container, it.payCode) }
     }
 
-    if (editContact) {
-        var phone by remember { mutableStateOf(tenant?.phoneWa ?: "") }
-        var optIn by remember { mutableStateOf(tenant?.waOptIn ?: true) }
-        var saving by remember { mutableStateOf(false) }
-        var dialogError by remember { mutableStateOf<String?>(null) }
-        AlertDialog(
-            onDismissRequest = { if (!saving) editContact = false },
-            title = { Text("Kontak perpanjangan") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        phone, { phone = it.filter { c -> c.isDigit() || c == '+' }.take(16) },
-                        label = { Text("Nomor WhatsApp (08xx / 62xx)") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Terima pengingat via WhatsApp", Modifier.weight(1f))
-                        Switch(checked = optIn, onCheckedChange = { optIn = it })
-                    }
-                    ErrorText(dialogError)
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = !saving && phone.length >= 9, onClick = {
-                    saving = true
-                    scope.launch {
-                        try { repo.updateContact(phone, optIn); editContact = false }
-                        catch (e: Exception) { dialogError = friendlyError(e); saving = false }
-                    }
-                }) { Text("Simpan") }
-            },
-            dismissButton = { TextButton(onClick = { editContact = false }, enabled = !saving) { Text("Batal") } },
-        )
-    }
 }

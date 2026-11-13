@@ -555,10 +555,6 @@ class PosRepository(val container: AppContainer) {
         refreshTenantInfo()
     }
 
-    suspend fun updateContact(phone: String, optIn: Boolean) {
-        client.rpc("update_contact", buildJsonObject { put("p_phone_wa", phone); put("p_wa_opt_in", optIn) })
-        refreshTenantInfo()
-    }
 
     /** True when the platform charges for extra outlets (D27). The amount is never shown in the app (D1). */
     suspend fun outletSurchargeActive(): Boolean =

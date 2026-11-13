@@ -93,7 +93,16 @@ class AdminRepo(private val c: SupabaseClient) {
         c.get("payment_confirmations?select=*,tenants(business_name,customer_code,pay_code,phone_wa)&status=eq.$status&order=created_at.asc&limit=200")
     )
 
-    /** Contact changes made by the owner (D28), newest first: (time, "old -> new"). */
+    /** Only SUPER_ADMIN changes a tenant's registered contact (D28 rev), logged server-side. */
+    suspend fun updateContact(tenantId: String, phone: String, optIn: Boolean) {
+        c.rpc("admin_update_contact", kotlinx.serialization.json.buildJsonObject {
+            put("p_tenant_id", kotlinx.serialization.json.JsonPrimitive(tenantId))
+            put("p_phone_wa", kotlinx.serialization.json.JsonPrimitive(phone))
+            put("p_wa_opt_in", kotlinx.serialization.json.JsonPrimitive(optIn))
+        })
+    }
+
+    /** Contact changes (D28), newest first: (time, "old -> new"). */
     suspend fun contactLog(tenantId: String): List<Pair<String, String>> =
         (AppJson.parseToJsonElement(c.get("audit_logs?select=created_at,payload&tenant_id=eq.$tenantId&action=eq.UPDATE_CONTACT&order=created_at.desc&limit=20"))
             as kotlinx.serialization.json.JsonArray).map { row ->
