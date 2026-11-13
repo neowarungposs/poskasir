@@ -140,7 +140,7 @@ const rp = (n) => "Rp" + Math.round(n).toLocaleString("id-ID");
 const tgl = (d) => new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(new Date(d));
 const msg = (el, text, ok) => { $(el).innerHTML = text ? `<div class="msg ${ok ? "ok" : "err"}"></div>` : ""; if (text) $(el).firstChild.textContent = text; };
 
-let ent, plans = [], monthly = 29000, selected, timer, extraOutlets = 0;
+let ent, plans = [], monthly = 0, selected, timer, extraOutlets = 0;
 
 async function start() {
   const { data } = await sb.auth.getSession();
@@ -192,7 +192,7 @@ function render() {
     $("seg").appendChild(b);
   });
   const save = selected.normal_price - selected.price;
-  const free = Math.floor(save / monthly);
+  const free = monthly > 0 ? Math.floor(save / monthly) : 0;
   $("planName").textContent = `Paket ${selected.months} bulan`;
   $("disc").textContent = `−${Number(selected.discount_pct)}%`;
   $("disc").classList.toggle("hidden", !(save > 0));

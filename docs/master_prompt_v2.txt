@@ -38,6 +38,7 @@
 | D28 | Owner may edit the registered WhatsApp number and reminder opt-in in the Kasir Warung app (RPC `update_contact`, TENANT_ADMIN only). Every real change is written to `audit_logs` (action `UPDATE_CONTACT`, old → new) and shown in Kasir Admin › tenant detail. Payments are still matched only by pay_code, never by phone. | Reminders reach the owner; changes stay traceable. |
 | D29 | Default theme becomes "Aurora Glass" (dark ink background, soft lime/cyan light spots, glass panels with hairline borders, Space Grotesk for headings and amounts). Bento Terang, Neon Glass and Midnight Pro stay selectable. Space Grotesk (SIL OFL) is fetched by CI at build time, not stored in git. Tablets (>=840dp) use a left navigation rail. | Premium, modern look requested by owner. |
 | D30 | Every APK is signed with ONE stable key (GitHub Secrets ANDROID_KEYSTORE_BASE64 / _PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD; never in git) so a new build installs over the old one and keeps data. Sideloaded debug builds (testing + Kasir Admin) check GitHub Releases on start ("build N" in the release title vs versionCode) and offer download + install. The self-updater and REQUEST_INSTALL_PACKAGES live only in `src/debug`; the Play release build gets a no-op and updates only via Google Play (policy). The same key is the Play upload key. | No more uninstall/reinstall; Play-policy safe. |
+| D31 | Changing `system_settings.monthly_base_price` re-prices every active plan at once (trigger `reprice_plans_on_base_change` → `_reprice_active_plans()`): same months, discount and badge; new price floored to Rp1.000. Old plan rows are retired, not deleted, so transfers at the old price still match for 180 days. A price collision aborts the save with a hint. | One place to change the price; web + apps follow. |
 | D18 | Product photos cached on device (filesDir/products) for offline POS. Printing only to already-paired Bluetooth printers (no scan permission). | Offline-first; fewer permissions. |
 | D14 | Future (not MVP): payment gateway with dynamic QRIS + webhook auto-approve when tenants approach 999 or revenue justifies the fee. | Capacity of pay_code; automation. |
 
@@ -123,7 +124,7 @@
 * RPC `upsert_plan`: retires the old version and inserts a new one. Rejects if the final price equals any plan that is active or retired within the last 180 days (show "harga bentrok").
 * `pg_cron` daily: when `promo_ends_at` passes, retire the promo version and create the normal-price version.
 * Price is locked at claim time (`plan_price_snapshot`): a promo chosen before it ended is honored.
-* Example (reference only): Rp29.000/bln; 3 bln −5% = Rp82.000; 6 bln −10% = Rp156.000; 12 bln −20% = Rp278.000.
+* Example (reference only): Rp50.000/bln; 3 bln −5% = Rp142.000; 6 bln −10% = Rp270.000; 12 bln −15% = Rp510.000. Prices are never hardcoded: web and apps read `plans` live; changing the base price re-prices active plans automatically (D31).
 
 ---
 
